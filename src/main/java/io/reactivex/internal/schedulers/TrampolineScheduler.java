@@ -1,12 +1,12 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,11 +17,13 @@
 package io.reactivex.internal.schedulers;
 
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.reactivex.Scheduler;
-import io.reactivex.disposables.Disposable;
+import io.reactivex.annotations.NonNull;
+import io.reactivex.disposables.*;
 import io.reactivex.internal.disposables.EmptyDisposable;
+import io.reactivex.internal.functions.ObjectHelper;
 import io.reactivex.plugins.RxJavaPlugins;
 
 /**
@@ -35,6 +37,7 @@ public final class TrampolineScheduler extends Scheduler {
         return INSTANCE;
     }
 
+    @NonNull
     @Override
     public Worker createWorker() {
         return new TrampolineWorker();
@@ -42,17 +45,20 @@ public final class TrampolineScheduler extends Scheduler {
 
     /* package accessible for unit tests */TrampolineScheduler() {
     }
-    
+
+    @NonNull
     @Override
-    public Disposable scheduleDirect(Runnable run) {
-        run.run();
+    public Disposable scheduleDirect(@NonNull Runnable run) {
+        RxJavaPlugins.onSchedule(run).run();
         return EmptyDisposable.INSTANCE;
     }
-    
+
+    @NonNull
     @Override
-    public Disposable scheduleDirect(Runnable run, long delay, TimeUnit unit) {
+    public Disposable scheduleDirect(@NonNull Runnable run, long delay, TimeUnit unit) {
         try {
             unit.sleep(delay);
+            RxJavaPlugins.onSchedule(run).run();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             RxJavaPlugins.onError(ex);
@@ -61,38 +67,43 @@ public final class TrampolineScheduler extends Scheduler {
     }
 
     static final class TrampolineWorker extends Scheduler.Worker implements Disposable {
-        private final PriorityBlockingQueue<TimedRunnable> queue = new PriorityBlockingQueue<>();
-        
+        final PriorityBlockingQueue<TimedRunnable> queue = new PriorityBlockingQueue<TimedRunnable>();
+
         private final AtomicInteger wip = new AtomicInteger();
 
-        volatile int counter;
-        private static final AtomicIntegerFieldUpdater<TrampolineWorker> COUNTER_UPDATER = AtomicIntegerFieldUpdater.newUpdater(TrampolineWorker.class, "counter");
-        
+        final AtomicInteger counter = new AtomicInteger();
+
         volatile boolean disposed;
 
+        @NonNull
         @Override
-        public Disposable schedule(Runnable action) {
+        public Disposable schedule(@NonNull Runnable action) {
             return enqueue(action, now(TimeUnit.MILLISECONDS));
         }
 
+        @NonNull
         @Override
-        public Disposable schedule(Runnable action, long delayTime, TimeUnit unit) {
+        public Disposable schedule(@NonNull Runnable action, long delayTime, @NonNull TimeUnit unit) {
             long execTime = now(TimeUnit.MILLISECONDS) + unit.toMillis(delayTime);
 
             return enqueue(new SleepingRunnable(action, this, execTime), execTime);
         }
-        
-        private Disposable enqueue(Runnable action, long execTime) {
+
+        Disposable enqueue(Runnable action, long execTime) {
             if (disposed) {
                 return EmptyDisposable.INSTANCE;
             }
-            final TimedRunnable timedRunnable = new TimedRunnable(action, execTime, COUNTER_UPDATER.incrementAndGet(this));
+            final TimedRunnable timedRunnable = new TimedRunnable(action, execTime, counter.incrementAndGet());
             queue.add(timedRunnable);
 
             if (wip.getAndIncrement() == 0) {
                 int missed = 1;
                 for (;;) {
                     for (;;) {
+                        if (disposed) {
+                            queue.clear();
+                            return EmptyDisposable.INSTANCE;
+                        }
                         final TimedRunnable polled = queue.poll();
                         if (polled == null) {
                             break;
@@ -106,14 +117,11 @@ public final class TrampolineScheduler extends Scheduler {
                         break;
                     }
                 }
-                
+
                 return EmptyDisposable.INSTANCE;
             } else {
                 // queue wasn't empty, a parent is already processing so we just add to the end of the queue
-                return () -> {
-                    timedRunnable.disposed = true;
-                    queue.remove(timedRunnable);
-                };
+                return Disposables.fromRunnable(new AppendToQueueTask(timedRunnable));
             }
         }
 
@@ -121,16 +129,35 @@ public final class TrampolineScheduler extends Scheduler {
         public void dispose() {
             disposed = true;
         }
+
+        @Override
+        public boolean isDisposed() {
+            return disposed;
+        }
+
+        final class AppendToQueueTask implements Runnable {
+            final TimedRunnable timedRunnable;
+
+            AppendToQueueTask(TimedRunnable timedRunnable) {
+                this.timedRunnable = timedRunnable;
+            }
+
+            @Override
+            public void run() {
+                timedRunnable.disposed = true;
+                queue.remove(timedRunnable);
+            }
+        }
     }
 
     static final class TimedRunnable implements Comparable<TimedRunnable> {
         final Runnable run;
         final long execTime;
         final int count; // In case if time between enqueueing took less than 1ms
-        
+
         volatile boolean disposed;
 
-        private TimedRunnable(Runnable run, Long execTime, int count) {
+        TimedRunnable(Runnable run, Long execTime, int count) {
             this.run = run;
             this.execTime = execTime;
             this.count = count;
@@ -138,20 +165,20 @@ public final class TrampolineScheduler extends Scheduler {
 
         @Override
         public int compareTo(TimedRunnable that) {
-            int result = Long.compare(execTime, that.execTime);
+            int result = ObjectHelper.compare(execTime, that.execTime);
             if (result == 0) {
-                return Integer.compare(count, that.count);
+                return ObjectHelper.compare(count, that.count);
             }
             return result;
         }
     }
-    
+
     static final class SleepingRunnable implements Runnable {
         private final Runnable run;
         private final TrampolineWorker worker;
         private final long execTime;
 
-        public SleepingRunnable(Runnable run, TrampolineWorker worker, long execTime) {
+        SleepingRunnable(Runnable run, TrampolineWorker worker, long execTime) {
             this.run = run;
             this.worker = worker;
             this.execTime = execTime;
@@ -159,13 +186,10 @@ public final class TrampolineScheduler extends Scheduler {
 
         @Override
         public void run() {
-            if (worker.disposed) {
-                return;
-            }
-            long t = worker.now(TimeUnit.MILLISECONDS);
-            if (execTime > t) {
-                long delay = execTime - t;
-                if (delay > 0) {
+            if (!worker.disposed) {
+                long t = worker.now(TimeUnit.MILLISECONDS);
+                if (execTime > t) {
+                    long delay = execTime - t;
                     try {
                         Thread.sleep(delay);
                     } catch (InterruptedException e) {
@@ -174,12 +198,11 @@ public final class TrampolineScheduler extends Scheduler {
                         return;
                     }
                 }
-            }
 
-            if (worker.disposed) {
-                return;
+                if (!worker.disposed) {
+                    run.run();
+                }
             }
-            run.run();
         }
     }
 }

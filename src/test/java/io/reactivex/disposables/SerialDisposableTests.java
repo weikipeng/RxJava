@@ -1,11 +1,11 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
@@ -22,6 +22,8 @@ import java.util.concurrent.CountDownLatch;
 import org.junit.*;
 import org.junit.runner.RunWith;
 import org.mockito.runners.MockitoJUnitRunner;
+
+import io.reactivex.internal.disposables.DisposableHelper;
 
 @RunWith(MockitoJUnitRunner.class)
 public class SerialDisposableTests {
@@ -46,6 +48,17 @@ public class SerialDisposableTests {
         final Disposable another = mock(Disposable.class);
         serialDisposable.set(another);
         assertSame(another, serialDisposable.get());
+    }
+
+    @Test
+    public void notDisposedWhenReplaced() {
+        final Disposable underlying = mock(Disposable.class);
+        serialDisposable.set(underlying);
+
+        serialDisposable.replace(Disposables.empty());
+        serialDisposable.dispose();
+
+        verify(underlying, never()).dispose();
     }
 
     @Test
@@ -115,7 +128,7 @@ public class SerialDisposableTests {
         final int count = 10;
         final CountDownLatch end = new CountDownLatch(count);
 
-        final List<Thread> threads = new ArrayList<>();
+        final List<Thread> threads = new ArrayList<Thread>();
         for (int i = 0; i < count; i++) {
             final Thread t = new Thread() {
                 @Override
@@ -150,12 +163,12 @@ public class SerialDisposableTests {
     public void concurrentSetDisposableShouldNotInterleave()
             throws InterruptedException {
         final int count = 10;
-        final List<Disposable> subscriptions = new ArrayList<>();
+        final List<Disposable> subscriptions = new ArrayList<Disposable>();
 
         final CountDownLatch start = new CountDownLatch(1);
         final CountDownLatch end = new CountDownLatch(count);
 
-        final List<Thread> threads = new ArrayList<>();
+        final List<Thread> threads = new ArrayList<Thread>();
         for (int i = 0; i < count; i++) {
             final Disposable subscription = mock(Disposable.class);
             subscriptions.add(subscription);
@@ -188,5 +201,23 @@ public class SerialDisposableTests {
         for (final Thread t : threads) {
             t.join();
         }
+    }
+
+    @Test
+    public void disposeState() {
+        Disposable empty = Disposables.empty();
+        SerialDisposable d = new SerialDisposable(empty);
+
+        assertFalse(d.isDisposed());
+
+        assertSame(empty, d.get());
+
+        d.dispose();
+
+        assertTrue(d.isDisposed());
+
+        assertNotSame(empty, d.get());
+
+        assertNotSame(DisposableHelper.DISPOSED, d.get());
     }
 }

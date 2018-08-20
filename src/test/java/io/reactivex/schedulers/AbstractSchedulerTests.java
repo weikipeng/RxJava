@@ -1,11 +1,11 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
@@ -19,18 +19,22 @@ import static org.mockito.Mockito.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
-import java.util.function.*;
 
+import io.reactivex.internal.functions.Functions;
+import io.reactivex.plugins.RxJavaPlugins;
 import org.junit.Test;
 import org.mockito.InOrder;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.reactivestreams.*;
 
-import io.reactivex.Observable;
-import io.reactivex.Observer;
-import io.reactivex.Scheduler;
+import io.reactivex.*;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.*;
+import io.reactivex.internal.disposables.SequentialDisposable;
+import io.reactivex.internal.schedulers.TrampolineScheduler;
 import io.reactivex.internal.subscriptions.*;
+import io.reactivex.subscribers.DefaultSubscriber;
 
 /**
  * Base tests for all schedulers including Immediate/Current.
@@ -38,7 +42,9 @@ import io.reactivex.internal.subscriptions.*;
 public abstract class AbstractSchedulerTests {
 
     /**
-     * The scheduler to test
+     * The scheduler to test.
+     *
+     * @return the Scheduler instance
      */
     protected abstract Scheduler getScheduler();
 
@@ -48,16 +54,16 @@ public abstract class AbstractSchedulerTests {
         final Scheduler.Worker inner = scheduler.createWorker();
         try {
             final CountDownLatch latch = new CountDownLatch(1);
-    
+
             final Runnable firstStepStart = mock(Runnable.class);
             final Runnable firstStepEnd = mock(Runnable.class);
-    
+
             final Runnable secondStepStart = mock(Runnable.class);
             final Runnable secondStepEnd = mock(Runnable.class);
-    
+
             final Runnable thirdStepStart = mock(Runnable.class);
             final Runnable thirdStepEnd = mock(Runnable.class);
-    
+
             final Runnable firstAction = new Runnable() {
                 @Override
                 public void run() {
@@ -72,7 +78,7 @@ public abstract class AbstractSchedulerTests {
                     secondStepStart.run();
                     inner.schedule(firstAction);
                     secondStepEnd.run();
-    
+
                 }
             };
             final Runnable thirdAction = new Runnable() {
@@ -83,13 +89,13 @@ public abstract class AbstractSchedulerTests {
                     thirdStepEnd.run();
                 }
             };
-    
+
             InOrder inOrder = inOrder(firstStepStart, firstStepEnd, secondStepStart, secondStepEnd, thirdStepStart, thirdStepEnd);
-    
+
             inner.schedule(thirdAction);
-    
+
             latch.await();
-    
+
             inOrder.verify(thirdStepStart, times(1)).run();
             inOrder.verify(thirdStepEnd, times(1)).run();
             inOrder.verify(secondStepStart, times(1)).run();
@@ -104,13 +110,13 @@ public abstract class AbstractSchedulerTests {
     @Test
     public final void testNestedScheduling() {
 
-        Observable<Integer> ids = Observable.fromIterable(Arrays.asList(1, 2)).subscribeOn(getScheduler());
+        Flowable<Integer> ids = Flowable.fromIterable(Arrays.asList(1, 2)).subscribeOn(getScheduler());
 
-        Observable<String> m = ids.flatMap(new Function<Integer, Observable<String>>() {
+        Flowable<String> m = ids.flatMap(new Function<Integer, Flowable<String>>() {
 
             @Override
-            public Observable<String> apply(Integer id) {
-                return Observable.fromIterable(Arrays.asList("a-" + id, "b-" + id)).subscribeOn(getScheduler())
+            public Flowable<String> apply(Integer id) {
+                return Flowable.fromIterable(Arrays.asList("a-" + id, "b-" + id)).subscribeOn(getScheduler())
                         .map(new Function<String, String>() {
 
                             @Override
@@ -122,7 +128,7 @@ public abstract class AbstractSchedulerTests {
 
         });
 
-        List<String> strings = m.toList().toBlocking().last();
+        List<String> strings = m.toList().blockingGet();
 
         assertEquals(4, strings.size());
         // because flatMap does a merge there is no guarantee of order
@@ -134,8 +140,8 @@ public abstract class AbstractSchedulerTests {
 
     /**
      * The order of execution is nondeterministic.
-     * 
-     * @throws InterruptedException
+     *
+     * @throws InterruptedException if the await is interrupted
      */
     @SuppressWarnings("rawtypes")
     @Test
@@ -146,10 +152,10 @@ public abstract class AbstractSchedulerTests {
             final CountDownLatch latch = new CountDownLatch(2);
             final Runnable first = mock(Runnable.class);
             final Runnable second = mock(Runnable.class);
-    
+
             // make it wait until both the first and second are called
             doAnswer(new Answer() {
-    
+
                 @Override
                 public Object answer(InvocationOnMock invocation) throws Throwable {
                     try {
@@ -160,7 +166,7 @@ public abstract class AbstractSchedulerTests {
                 }
             }).when(first).run();
             doAnswer(new Answer() {
-    
+
                 @Override
                 public Object answer(InvocationOnMock invocation) throws Throwable {
                     try {
@@ -170,12 +176,12 @@ public abstract class AbstractSchedulerTests {
                     }
                 }
             }).when(second).run();
-    
+
             inner.schedule(first);
             inner.schedule(second);
-    
+
             latch.await();
-    
+
             verify(first, times(1)).run();
             verify(second, times(1)).run();
         } finally {
@@ -187,19 +193,19 @@ public abstract class AbstractSchedulerTests {
     public void testSequenceOfDelayedActions() throws InterruptedException {
         Scheduler scheduler = getScheduler();
         final Scheduler.Worker inner = scheduler.createWorker();
-        
+
         try {
             final CountDownLatch latch = new CountDownLatch(1);
             final Runnable first = mock(Runnable.class);
             final Runnable second = mock(Runnable.class);
-    
+
             inner.schedule(new Runnable() {
                 @Override
                 public void run() {
                     inner.schedule(first, 30, TimeUnit.MILLISECONDS);
                     inner.schedule(second, 10, TimeUnit.MILLISECONDS);
                     inner.schedule(new Runnable() {
-    
+
                         @Override
                         public void run() {
                             latch.countDown();
@@ -207,10 +213,10 @@ public abstract class AbstractSchedulerTests {
                     }, 40, TimeUnit.MILLISECONDS);
                 }
             });
-    
+
             latch.await();
             InOrder inOrder = inOrder(first, second);
-    
+
             inOrder.verify(second, times(1)).run();
             inOrder.verify(first, times(1)).run();
         } finally {
@@ -222,14 +228,14 @@ public abstract class AbstractSchedulerTests {
     public void testMixOfDelayedAndNonDelayedActions() throws InterruptedException {
         Scheduler scheduler = getScheduler();
         final Scheduler.Worker inner = scheduler.createWorker();
-        
+
         try {
             final CountDownLatch latch = new CountDownLatch(1);
             final Runnable first = mock(Runnable.class);
             final Runnable second = mock(Runnable.class);
             final Runnable third = mock(Runnable.class);
             final Runnable fourth = mock(Runnable.class);
-    
+
             inner.schedule(new Runnable() {
                 @Override
                 public void run() {
@@ -238,7 +244,7 @@ public abstract class AbstractSchedulerTests {
                     inner.schedule(third, 100, TimeUnit.MILLISECONDS);
                     inner.schedule(fourth);
                     inner.schedule(new Runnable() {
-    
+
                         @Override
                         public void run() {
                             latch.countDown();
@@ -246,10 +252,10 @@ public abstract class AbstractSchedulerTests {
                     }, 400, TimeUnit.MILLISECONDS);
                 }
             });
-    
+
             latch.await();
             InOrder inOrder = inOrder(first, second, third, fourth);
-    
+
             inOrder.verify(first, times(1)).run();
             inOrder.verify(fourth, times(1)).run();
             inOrder.verify(third, times(1)).run();
@@ -263,13 +269,13 @@ public abstract class AbstractSchedulerTests {
     public final void testRecursiveExecution() throws InterruptedException {
         final Scheduler scheduler = getScheduler();
         final Scheduler.Worker inner = scheduler.createWorker();
-        
+
         try {
-            
+
             final AtomicInteger i = new AtomicInteger();
             final CountDownLatch latch = new CountDownLatch(1);
             inner.schedule(new Runnable() {
-    
+
                 @Override
                 public void run() {
                     if (i.incrementAndGet() < 100) {
@@ -279,7 +285,7 @@ public abstract class AbstractSchedulerTests {
                     }
                 }
             });
-    
+
             latch.await();
             assertEquals(100, i.get());
         } finally {
@@ -291,15 +297,15 @@ public abstract class AbstractSchedulerTests {
     public final void testRecursiveExecutionWithDelayTime() throws InterruptedException {
         Scheduler scheduler = getScheduler();
         final Scheduler.Worker inner = scheduler.createWorker();
-        
+
         try {
             final AtomicInteger i = new AtomicInteger();
             final CountDownLatch latch = new CountDownLatch(1);
-    
+
             inner.schedule(new Runnable() {
-    
-                int state = 0;
-    
+
+                int state;
+
                 @Override
                 public void run() {
                     i.set(state);
@@ -309,9 +315,9 @@ public abstract class AbstractSchedulerTests {
                         latch.countDown();
                     }
                 }
-    
+
             });
-    
+
             latch.await();
             assertEquals(100, i.get());
         } finally {
@@ -321,26 +327,30 @@ public abstract class AbstractSchedulerTests {
 
     @Test
     public final void testRecursiveSchedulerInObservable() {
-        Observable<Integer> obs = Observable.create(new Publisher<Integer>() {
+        Flowable<Integer> obs = Flowable.unsafeCreate(new Publisher<Integer>() {
             @Override
-            public void subscribe(final Subscriber<? super Integer> observer) {
+            public void subscribe(final Subscriber<? super Integer> subscriber) {
                 final Scheduler.Worker inner = getScheduler().createWorker();
 
                 AsyncSubscription as = new AsyncSubscription();
-                observer.onSubscribe(as);
+                subscriber.onSubscribe(as);
                 as.setResource(inner);
-                
+
                 inner.schedule(new Runnable() {
-                    int i = 0;
+                    int i;
 
                     @Override
                     public void run() {
                         if (i > 42) {
-                            observer.onComplete();
+                            try {
+                                subscriber.onComplete();
+                            } finally {
+                                inner.dispose();
+                            }
                             return;
                         }
 
-                        observer.onNext(i++);
+                        subscriber.onNext(i++);
 
                         inner.schedule(this);
                     }
@@ -349,7 +359,7 @@ public abstract class AbstractSchedulerTests {
         });
 
         final AtomicInteger lastValue = new AtomicInteger();
-        obs.toBlocking().forEach(new Consumer<Integer>() {
+        obs.blockingForEach(new Consumer<Integer>() {
 
             @Override
             public void accept(Integer v) {
@@ -365,18 +375,18 @@ public abstract class AbstractSchedulerTests {
     public final void testConcurrentOnNextFailsValidation() throws InterruptedException {
         final int count = 10;
         final CountDownLatch latch = new CountDownLatch(count);
-        Observable<String> o = Observable.create(new Publisher<String>() {
+        Flowable<String> f = Flowable.unsafeCreate(new Publisher<String>() {
 
             @Override
-            public void subscribe(final Subscriber<? super String> observer) {
-                observer.onSubscribe(EmptySubscription.INSTANCE);
+            public void subscribe(final Subscriber<? super String> subscriber) {
+                subscriber.onSubscribe(new BooleanSubscription());
                 for (int i = 0; i < count; i++) {
                     final int v = i;
                     new Thread(new Runnable() {
 
                         @Override
                         public void run() {
-                            observer.onNext("v: " + v);
+                            subscriber.onNext("v: " + v);
 
                             latch.countDown();
                         }
@@ -385,9 +395,9 @@ public abstract class AbstractSchedulerTests {
             }
         });
 
-        ConcurrentObserverValidator<String> observer = new ConcurrentObserverValidator<>();
+        ConcurrentObserverValidator<String> observer = new ConcurrentObserverValidator<String>();
         // this should call onNext concurrently
-        o.subscribe(observer);
+        f.subscribe(observer);
 
         if (!observer.completed.await(3000, TimeUnit.MILLISECONDS)) {
             fail("timed out");
@@ -402,11 +412,11 @@ public abstract class AbstractSchedulerTests {
     public final void testObserveOn() throws InterruptedException {
         final Scheduler scheduler = getScheduler();
 
-        Observable<String> o = Observable.fromArray("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten");
+        Flowable<String> f = Flowable.fromArray("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten");
 
-        ConcurrentObserverValidator<String> observer = new ConcurrentObserverValidator<>();
+        ConcurrentObserverValidator<String> observer = new ConcurrentObserverValidator<String>();
 
-        o.observeOn(scheduler).subscribe(observer);
+        f.observeOn(scheduler).subscribe(observer);
 
         if (!observer.completed.await(3000, TimeUnit.MILLISECONDS)) {
             fail("timed out");
@@ -422,26 +432,26 @@ public abstract class AbstractSchedulerTests {
     public final void testSubscribeOnNestedConcurrency() throws InterruptedException {
         final Scheduler scheduler = getScheduler();
 
-        Observable<String> o = Observable.fromArray("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
-                .flatMap(new Function<String, Observable<String>>() {
+        Flowable<String> f = Flowable.fromArray("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+                .flatMap(new Function<String, Flowable<String>>() {
 
                     @Override
-                    public Observable<String> apply(final String v) {
-                        return Observable.create(new Publisher<String>() {
+                    public Flowable<String> apply(final String v) {
+                        return Flowable.unsafeCreate(new Publisher<String>() {
 
                             @Override
-                            public void subscribe(Subscriber<? super String> observer) {
-                                observer.onSubscribe(EmptySubscription.INSTANCE);
-                                observer.onNext("value_after_map-" + v);
-                                observer.onComplete();
+                            public void subscribe(Subscriber<? super String> subscriber) {
+                                subscriber.onSubscribe(new BooleanSubscription());
+                                subscriber.onNext("value_after_map-" + v);
+                                subscriber.onComplete();
                             }
                         }).subscribeOn(scheduler);
                     }
                 });
 
-        ConcurrentObserverValidator<String> observer = new ConcurrentObserverValidator<>();
+        ConcurrentObserverValidator<String> observer = new ConcurrentObserverValidator<String>();
 
-        o.subscribe(observer);
+        f.subscribe(observer);
 
         if (!observer.completed.await(3000, TimeUnit.MILLISECONDS)) {
             fail("timed out");
@@ -455,13 +465,13 @@ public abstract class AbstractSchedulerTests {
 
     /**
      * Used to determine if onNext is being invoked concurrently.
-     * 
+     *
      * @param <T>
      */
-    private static class ConcurrentObserverValidator<T> extends Observer<T> {
+    private static class ConcurrentObserverValidator<T> extends DefaultSubscriber<T> {
 
         final AtomicInteger concurrentCounter = new AtomicInteger();
-        final AtomicReference<Throwable> error = new AtomicReference<>();
+        final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
         final CountDownLatch completed = new CountDownLatch(1);
 
         @Override
@@ -496,4 +506,270 @@ public abstract class AbstractSchedulerTests {
 
     }
 
+    @Test
+    public void scheduleDirect() throws Exception {
+        Scheduler s = getScheduler();
+
+        final CountDownLatch cdl = new CountDownLatch(1);
+
+        s.scheduleDirect(new Runnable() {
+            @Override
+            public void run() {
+                cdl.countDown();
+            }
+        });
+
+        assertTrue(cdl.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void scheduleDirectDelayed() throws Exception {
+        Scheduler s = getScheduler();
+
+        final CountDownLatch cdl = new CountDownLatch(1);
+
+        s.scheduleDirect(new Runnable() {
+            @Override
+            public void run() {
+                cdl.countDown();
+            }
+        }, 50, TimeUnit.MILLISECONDS);
+
+        assertTrue(cdl.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test(timeout = 7000)
+    public void scheduleDirectPeriodic() throws Exception {
+        Scheduler s = getScheduler();
+        if (s instanceof TrampolineScheduler) {
+            // can't properly stop a trampolined periodic task
+            return;
+        }
+
+        final CountDownLatch cdl = new CountDownLatch(5);
+
+        Disposable d = s.schedulePeriodicallyDirect(new Runnable() {
+            @Override
+            public void run() {
+                cdl.countDown();
+            }
+        }, 10, 10, TimeUnit.MILLISECONDS);
+
+        try {
+            assertTrue(cdl.await(5, TimeUnit.SECONDS));
+        } finally {
+            d.dispose();
+        }
+        assertTrue(d.isDisposed());
+    }
+
+    @Test(timeout = 10000)
+    public void schedulePeriodicallyDirectZeroPeriod() throws Exception {
+        Scheduler s = getScheduler();
+        if (s instanceof TrampolineScheduler) {
+            // can't properly stop a trampolined periodic task
+            return;
+        }
+
+        for (int initial = 0; initial < 2; initial++) {
+            final CountDownLatch cdl = new CountDownLatch(1);
+
+            final SequentialDisposable sd = new SequentialDisposable();
+
+            try {
+                sd.replace(s.schedulePeriodicallyDirect(new Runnable() {
+                    int count;
+
+                    @Override
+                    public void run() {
+                        if (++count == 10) {
+                            sd.dispose();
+                            cdl.countDown();
+                        }
+                    }
+                }, initial, 0, TimeUnit.MILLISECONDS));
+
+                assertTrue("" + initial, cdl.await(5, TimeUnit.SECONDS));
+            } finally {
+                sd.dispose();
+            }
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void schedulePeriodicallyZeroPeriod() throws Exception {
+        Scheduler s = getScheduler();
+        if (s instanceof TrampolineScheduler) {
+            // can't properly stop a trampolined periodic task
+            return;
+        }
+
+        for (int initial = 0; initial < 2; initial++) {
+            final CountDownLatch cdl = new CountDownLatch(1);
+
+            final SequentialDisposable sd = new SequentialDisposable();
+
+            Scheduler.Worker w = s.createWorker();
+
+            try {
+                sd.replace(w.schedulePeriodically(new Runnable() {
+                    int count;
+
+                    @Override
+                    public void run() {
+                        if (++count == 10) {
+                            sd.dispose();
+                            cdl.countDown();
+                        }
+                    }
+                }, initial, 0, TimeUnit.MILLISECONDS));
+
+                assertTrue("" + initial, cdl.await(5, TimeUnit.SECONDS));
+            } finally {
+                sd.dispose();
+                w.dispose();
+            }
+        }
+    }
+
+    private void assertRunnableDecorated(Runnable scheduleCall) throws InterruptedException {
+        try {
+            final CountDownLatch decoratedCalled = new CountDownLatch(1);
+
+            RxJavaPlugins.setScheduleHandler(new Function<Runnable, Runnable>() {
+                @Override
+                public Runnable apply(final Runnable actual) throws Exception {
+                    return new Runnable() {
+                        @Override
+                        public void run() {
+                            decoratedCalled.countDown();
+                            actual.run();
+                        }
+                    };
+                }
+            });
+
+            scheduleCall.run();
+
+            assertTrue(decoratedCalled.await(5, TimeUnit.SECONDS));
+        } finally {
+            RxJavaPlugins.reset();
+        }
+    }
+
+    @Test(timeout = 6000)
+    public void scheduleDirectDecoratesRunnable() throws InterruptedException {
+        assertRunnableDecorated(new Runnable() {
+            @Override
+            public void run() {
+                getScheduler().scheduleDirect(Functions.EMPTY_RUNNABLE);
+            }
+        });
+    }
+
+    @Test(timeout = 6000)
+    public void scheduleDirectWithDelayDecoratesRunnable() throws InterruptedException {
+        assertRunnableDecorated(new Runnable() {
+            @Override
+            public void run() {
+                getScheduler().scheduleDirect(Functions.EMPTY_RUNNABLE, 1, TimeUnit.MILLISECONDS);
+            }
+        });
+    }
+
+    @Test(timeout = 6000)
+    public void schedulePeriodicallyDirectDecoratesRunnable() throws InterruptedException {
+        final Scheduler scheduler = getScheduler();
+        if (scheduler instanceof TrampolineScheduler) {
+            // Can't properly stop a trampolined periodic task.
+            return;
+        }
+
+        final AtomicReference<Disposable> disposable = new AtomicReference<Disposable>();
+
+        try {
+            assertRunnableDecorated(new Runnable() {
+                @Override
+                public void run() {
+                    disposable.set(scheduler.schedulePeriodicallyDirect(Functions.EMPTY_RUNNABLE, 1, 10000, TimeUnit.MILLISECONDS));
+                }
+            });
+        } finally {
+            disposable.get().dispose();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void unwrapDefaultPeriodicTask() throws InterruptedException {
+        Scheduler s = getScheduler();
+        if (s instanceof TrampolineScheduler) {
+            // TrampolineScheduler always return EmptyDisposable
+            return;
+        }
+
+
+        final CountDownLatch cdl = new CountDownLatch(1);
+        Runnable countDownRunnable = new Runnable() {
+            @Override
+            public void run() {
+                cdl.countDown();
+            }
+        };
+        Disposable disposable = s.schedulePeriodicallyDirect(countDownRunnable, 100, 100, TimeUnit.MILLISECONDS);
+        SchedulerRunnableIntrospection wrapper = (SchedulerRunnableIntrospection) disposable;
+
+        assertSame(countDownRunnable, wrapper.getWrappedRunnable());
+        assertTrue(cdl.await(5, TimeUnit.SECONDS));
+        disposable.dispose();
+    }
+
+    @Test
+    public void unwrapScheduleDirectTask() {
+        Scheduler scheduler = getScheduler();
+        if (scheduler instanceof TrampolineScheduler) {
+            // TrampolineScheduler always return EmptyDisposable
+            return;
+        }
+        final CountDownLatch cdl = new CountDownLatch(1);
+        Runnable countDownRunnable = new Runnable() {
+            @Override
+            public void run() {
+                cdl.countDown();
+            }
+        };
+        Disposable disposable = scheduler.scheduleDirect(countDownRunnable, 100, TimeUnit.MILLISECONDS);
+        SchedulerRunnableIntrospection wrapper = (SchedulerRunnableIntrospection) disposable;
+        assertSame(countDownRunnable, wrapper.getWrappedRunnable());
+        disposable.dispose();
+    }
+
+    @Test
+    public void scheduleDirectNullRunnable() {
+        try {
+            getScheduler().scheduleDirect(null);
+            fail();
+        } catch (NullPointerException npe) {
+            assertEquals("run is null", npe.getMessage());
+        }
+    }
+
+    @Test
+    public void scheduleDirectWithDelayNullRunnable() {
+        try {
+            getScheduler().scheduleDirect(null, 10, TimeUnit.MILLISECONDS);
+            fail();
+        } catch (NullPointerException npe) {
+            assertEquals("run is null", npe.getMessage());
+        }
+    }
+
+    @Test
+    public void schedulePeriodicallyDirectNullRunnable() {
+        try {
+            getScheduler().schedulePeriodicallyDirect(null, 5, 10, TimeUnit.MILLISECONDS);
+            fail();
+        } catch (NullPointerException npe) {
+            assertEquals("run is null", npe.getMessage());
+        }
+    }
 }

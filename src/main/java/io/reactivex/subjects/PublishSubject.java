@@ -1,336 +1,338 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
  */
+
 package io.reactivex.subjects;
 
+import io.reactivex.annotations.CheckReturnValue;
+import io.reactivex.annotations.Nullable;
+import io.reactivex.annotations.NonNull;
 import java.util.concurrent.atomic.*;
-import java.util.function.IntFunction;
 
-import org.reactivestreams.*;
-
-import io.reactivex.exceptions.MissingBackpressureException;
-import io.reactivex.internal.subscriptions.SubscriptionHelper;
-import io.reactivex.internal.util.*;
+import io.reactivex.Observer;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.internal.functions.ObjectHelper;
 import io.reactivex.plugins.RxJavaPlugins;
 
 /**
- * A Subject that multicasts events to Subscribers that are currently subscribed to it.
- * 
- * <p>The subject does not coordinate backpressure for its subscribers and implements a weaker onSubscribe which
- * calls requests Long.MAX_VALUE from the incoming Subscriptions. This makes it possible to subscribe the PublishSubject
- * to multiple sources (note on serialization though) unlike the standard contract on Subscriber. Child subscribers, however, are not overflown but receive an
- * IllegalStateException in case their requested amount is zero.
- * 
- * <p>The implementation of onXXX methods are technically thread-safe but non-serialized calls
- * to them may lead to undefined state in the currently subscribed Subscribers.
- * 
- * <p>Due to the nature Observables are constructed, the PublishSubject can't be instantiated through
- * {@code new} but must be created via the {@link #create()} method.
+ * A Subject that emits (multicasts) items to currently subscribed {@link Observer}s and terminal events to current
+ * or late {@code Observer}s.
+ * <p>
+ * <img width="640" height="281" src="https://raw.github.com/wiki/ReactiveX/RxJava/images/rx-operators/PublishSubject.png" alt="">
+ * <p>
+ * This subject does not have a public constructor by design; a new empty instance of this
+ * {@code PublishSubject} can be created via the {@link #create()} method.
+ * <p>
+ * Since a {@code Subject} is conceptionally derived from the {@code Processor} type in the Reactive Streams specification,
+ * {@code null}s are not allowed (<a href="https://github.com/reactive-streams/reactive-streams-jvm#2.13">Rule 2.13</a>) as
+ * parameters to {@link #onNext(Object)} and {@link #onError(Throwable)}. Such calls will result in a
+ * {@link NullPointerException} being thrown and the subject's state is not changed.
+ * <p>
+ * Since a {@code PublishSubject} is an {@link io.reactivex.Observable}, it does not support backpressure.
+ * <p>
+ * When this {@code PublishSubject} is terminated via {@link #onError(Throwable)} or {@link #onComplete()},
+ * late {@link io.reactivex.Observer}s only receive the respective terminal event.
+ * <p>
+ * Unlike a {@link BehaviorSubject}, a {@code PublishSubject} doesn't retain/cache items, therefore, a new
+ * {@code Observer} won't receive any past items.
+ * <p>
+ * Even though {@code PublishSubject} implements the {@code Observer} interface, calling
+ * {@code onSubscribe} is not required (<a href="https://github.com/reactive-streams/reactive-streams-jvm#2.12">Rule 2.12</a>)
+ * if the subject is used as a standalone source. However, calling {@code onSubscribe}
+ * after the {@code PublishSubject} reached its terminal state will result in the
+ * given {@code Disposable} being disposed immediately.
+ * <p>
+ * Calling {@link #onNext(Object)}, {@link #onError(Throwable)} and {@link #onComplete()}
+ * is required to be serialized (called from the same thread or called non-overlappingly from different threads
+ * through external means of serialization). The {@link #toSerialized()} method available to all {@code Subject}s
+ * provides such serialization and also protects against reentrance (i.e., when a downstream {@code Observer}
+ * consuming this subject also wants to call {@link #onNext(Object)} on this subject recursively).
+ * <p>
+ * This {@code PublishSubject} supports the standard state-peeking methods {@link #hasComplete()}, {@link #hasThrowable()},
+ * {@link #getThrowable()} and {@link #hasObservers()}.
+ * <dl>
+ *  <dt><b>Scheduler:</b></dt>
+ *  <dd>{@code PublishSubject} does not operate by default on a particular {@link io.reactivex.Scheduler} and
+ *  the {@code Observer}s get notified on the thread the respective {@code onXXX} methods were invoked.</dd>
+ *  <dt><b>Error handling:</b></dt>
+ *  <dd>When the {@link #onError(Throwable)} is called, the {@code PublishSubject} enters into a terminal state
+ *  and emits the same {@code Throwable} instance to the last set of {@code Observer}s. During this emission,
+ *  if one or more {@code Observer}s dispose their respective {@code Disposable}s, the
+ *  {@code Throwable} is delivered to the global error handler via
+ *  {@link io.reactivex.plugins.RxJavaPlugins#onError(Throwable)} (multiple times if multiple {@code Observer}s
+ *  cancel at once).
+ *  If there were no {@code Observer}s subscribed to this {@code PublishSubject} when the {@code onError()}
+ *  was called, the global error handler is not invoked.
+ *  </dd>
+ * </dl>
+ * <p>
+ * Example usage:
+ * <pre> {@code
+
+  PublishSubject<Object> subject = PublishSubject.create();
+  // observer1 will receive all onNext and onComplete events
+  subject.subscribe(observer1);
+  subject.onNext("one");
+  subject.onNext("two");
+  // observer2 will only receive "three" and onComplete
+  subject.subscribe(observer2);
+  subject.onNext("three");
+  subject.onComplete();
+
+  // late Observers only receive the terminal event
+  subject.test().assertEmpty();
+  } </pre>
  *
- * @param <T> the value type multicast to Subscribers.
+ * @param <T>
+ *          the type of items observed and emitted by the Subject
  */
-public final class PublishSubject<T> extends Subject<T, T> {
-    
+public final class PublishSubject<T> extends Subject<T> {
+    /** The terminated indicator for the subscribers array. */
+    @SuppressWarnings("rawtypes")
+    static final PublishDisposable[] TERMINATED = new PublishDisposable[0];
+    /** An empty subscribers array to avoid allocating it all the time. */
+    @SuppressWarnings("rawtypes")
+    static final PublishDisposable[] EMPTY = new PublishDisposable[0];
+
+    /** The array of currently subscribed subscribers. */
+    final AtomicReference<PublishDisposable<T>[]> subscribers;
+
+    /** The error, write before terminating and read after checking subscribers. */
+    Throwable error;
+
     /**
      * Constructs a PublishSubject.
+     * @param <T> the value type
      * @return the new PublishSubject
      */
+    @CheckReturnValue
+    @NonNull
     public static <T> PublishSubject<T> create() {
-        State<T> state = new State<>();
-        return new PublishSubject<>(state);
+        return new PublishSubject<T>();
     }
-    
-    /** Holds the terminal event and manages the array of subscribers. */
-    final State<T> state;
-    /** 
-     * Indicates the subject has been terminated. It is checked in the onXXX methods in
-     * a relaxed matter: concurrent calls may not properly see it (which shouldn't happen if
-     * the reactive-streams contract is held).
+
+    /**
+     * Constructs a PublishSubject.
+     * @since 2.0
      */
-    boolean done;
-    
-    protected PublishSubject(State<T> state) {
-        super(state);
-        this.state = state;
+    @SuppressWarnings("unchecked")
+    PublishSubject() {
+        subscribers = new AtomicReference<PublishDisposable<T>[]>(EMPTY);
     }
-    
+
     @Override
-    public void onSubscribe(Subscription s) {
-        if (done) {
-            s.cancel();
-            return;
+    protected void subscribeActual(Observer<? super T> t) {
+        PublishDisposable<T> ps = new PublishDisposable<T>(t, this);
+        t.onSubscribe(ps);
+        if (add(ps)) {
+            // if cancellation happened while a successful add, the remove() didn't work
+            // so we need to do it again
+            if (ps.isDisposed()) {
+                remove(ps);
+            }
+        } else {
+            Throwable ex = error;
+            if (ex != null) {
+                t.onError(ex);
+            } else {
+                t.onComplete();
+            }
         }
-        // PublishSubject doesn't bother with request coordination.
-        s.request(Long.MAX_VALUE);
     }
-    
+
+    /**
+     * Tries to add the given subscriber to the subscribers array atomically
+     * or returns false if the subject has terminated.
+     * @param ps the subscriber to add
+     * @return true if successful, false if the subject has terminated
+     */
+    boolean add(PublishDisposable<T> ps) {
+        for (;;) {
+            PublishDisposable<T>[] a = subscribers.get();
+            if (a == TERMINATED) {
+                return false;
+            }
+
+            int n = a.length;
+            @SuppressWarnings("unchecked")
+            PublishDisposable<T>[] b = new PublishDisposable[n + 1];
+            System.arraycopy(a, 0, b, 0, n);
+            b[n] = ps;
+
+            if (subscribers.compareAndSet(a, b)) {
+                return true;
+            }
+        }
+    }
+
+    /**
+     * Atomically removes the given subscriber if it is subscribed to the subject.
+     * @param ps the subject to remove
+     */
+    @SuppressWarnings("unchecked")
+    void remove(PublishDisposable<T> ps) {
+        for (;;) {
+            PublishDisposable<T>[] a = subscribers.get();
+            if (a == TERMINATED || a == EMPTY) {
+                return;
+            }
+
+            int n = a.length;
+            int j = -1;
+            for (int i = 0; i < n; i++) {
+                if (a[i] == ps) {
+                    j = i;
+                    break;
+                }
+            }
+
+            if (j < 0) {
+                return;
+            }
+
+            PublishDisposable<T>[] b;
+
+            if (n == 1) {
+                b = EMPTY;
+            } else {
+                b = new PublishDisposable[n - 1];
+                System.arraycopy(a, 0, b, 0, j);
+                System.arraycopy(a, j + 1, b, j, n - j - 1);
+            }
+            if (subscribers.compareAndSet(a, b)) {
+                return;
+            }
+        }
+    }
+
+    @Override
+    public void onSubscribe(Disposable d) {
+        if (subscribers.get() == TERMINATED) {
+            d.dispose();
+        }
+    }
+
     @Override
     public void onNext(T t) {
-        if (done) {
-            return;
-        }
-        if (t == null) {
-            onError(new NullPointerException());
-            return;
-        }
-        for (PublishSubscriber<T> s : state.subscribers()) {
-            s.onNext(t);
+        ObjectHelper.requireNonNull(t, "onNext called with null. Null values are generally not allowed in 2.x operators and sources.");
+        for (PublishDisposable<T> pd : subscribers.get()) {
+            pd.onNext(t);
         }
     }
-    
+
+    @SuppressWarnings("unchecked")
     @Override
     public void onError(Throwable t) {
-        if (done) {
+        ObjectHelper.requireNonNull(t, "onError called with null. Null values are generally not allowed in 2.x operators and sources.");
+        if (subscribers.get() == TERMINATED) {
             RxJavaPlugins.onError(t);
             return;
         }
-        done = true;
-        if (t == null) {
-            t = new NullPointerException();
-        }
-        for (PublishSubscriber<T> s : state.terminate(t)) {
-            s.onError(t);
+        error = t;
+
+        for (PublishDisposable<T> pd : subscribers.getAndSet(TERMINATED)) {
+            pd.onError(t);
         }
     }
-    
+
+    @SuppressWarnings("unchecked")
     @Override
     public void onComplete() {
-        if (done) {
+        if (subscribers.get() == TERMINATED) {
             return;
         }
-        done = true;
-        for (PublishSubscriber<T> s : state.terminate()) {
-            s.onComplete();
+        for (PublishDisposable<T> pd : subscribers.getAndSet(TERMINATED)) {
+            pd.onComplete();
         }
     }
-    
+
     @Override
-    public boolean hasSubscribers() {
-        return state.subscribers().length != 0;
+    public boolean hasObservers() {
+        return subscribers.get().length != 0;
     }
-    
+
     @Override
-    public boolean hasValue() {
-        return false;
-    }
-    
-    @Override
-    public T getValue() {
+    @Nullable
+    public Throwable getThrowable() {
+        if (subscribers.get() == TERMINATED) {
+            return error;
+        }
         return null;
     }
-    
-    @Override
-    public T[] getValues(T[] array) {
-        if (array.length != 0) {
-            array[0] = null;
-        }
-        return array;
-    }
-    
-    @Override
-    public Throwable getThrowable() {
-        Object o = state.get();
-        if (o == State.COMPLETE) {
-            return null;
-        }
-        return (Throwable)o;
-    }
-    
+
     @Override
     public boolean hasThrowable() {
-        Object o = state.get();
-        return o != null && o != State.COMPLETE;
+        return subscribers.get() == TERMINATED && error != null;
     }
-    
+
     @Override
     public boolean hasComplete() {
-        return state.get() == State.COMPLETE;
+        return subscribers.get() == TERMINATED && error == null;
     }
-    
-    /**
-     * Contains the state of the Subject, including the currently subscribed clients and the 
-     * terminal value.
-     *
-     * @param <T> the value type of the events
-     */
-    @SuppressWarnings("rawtypes")
-    static final class State<T> extends AtomicReference<Object> implements Publisher<T>, IntFunction<PublishSubscriber[]> {
-        /** */
-        private static final long serialVersionUID = -2699311989055418316L;
-        /** The completion token. */
-        static final Object COMPLETE = new Object();
-        
-        /** The terminated indicator for the subscribers array. */
-        static final PublishSubscriber[] TERMINATED = new PublishSubscriber[0];
-        /** An empty subscribers array to avoid allocating it all the time. */
-        static final PublishSubscriber[] EMPTY = new PublishSubscriber[0];
 
-        /** The array of currently subscribed subscribers. */
-        @SuppressWarnings("unchecked")
-        volatile PublishSubscriber<T>[] subscribers = EMPTY;
-        
-        /** Field updater for subscribers. */
-        static final AtomicReferenceFieldUpdater<State, PublishSubscriber[]> SUBSCRIBERS =
-                AtomicReferenceFieldUpdater.newUpdater(State.class, PublishSubscriber[].class, "subscribers");
-        
-        @Override
-        public void subscribe(Subscriber<? super T> t) {
-            PublishSubscriber<T> ps = new PublishSubscriber<>(t, this);
-            t.onSubscribe(ps);
-            if (ps.cancelled == 0) {
-                if (add(ps)) {
-                    // if cancellation happened while a successful add, the remove() didn't work
-                    // so we need to do it again
-                    if (ps.cancelled != 0) {
-                        remove(ps);
-                    }
-                } else {
-                    Object o = get();
-                    if (o == COMPLETE) {
-                        ps.onComplete();
-                    } else {
-                        ps.onError((Throwable)o);
-                    }
-                }
-            }
-        }
-        
-        /**
-         * @return the array of currently subscribed subscribers
-         */
-        PublishSubscriber<T>[] subscribers() {
-            return subscribers;
-        }
-        
-        /**
-         * Atomically swaps in the terminal state with a completion indicator and returns
-         * the last array of subscribers.
-         * @return the last array of subscribers
-         */
-        PublishSubscriber<T>[] terminate() {
-            return terminate(COMPLETE);
-        }
-        
-        /**
-         * Atomically swaps in the terminal state with a completion indicator and returns
-         * the last array of subscribers.
-         * @param event the terminal state value to set
-         * @return the last array of subscribers
-         */
-        @SuppressWarnings("unchecked")
-        PublishSubscriber<T>[] terminate(Object event) {
-            if (compareAndSet(null, event)) {
-                return TerminalAtomicsHelper.terminate(SUBSCRIBERS, this, TERMINATED);
-            }
-            return TERMINATED;
-        }
-        
-        /**
-         * Tries to add the given subscriber to the subscribers array atomically
-         * or returns false if the subject has terminated.
-         * @param ps the subscriber to add
-         * @return true if successful, false if the subject has terminated
-         */
-        boolean add(PublishSubscriber<T> ps) {
-            return TerminalAtomicsHelper.add(SUBSCRIBERS, this, ps, TERMINATED, this);
-        }
-        
-        /**
-         * Atomically removes the given subscriber if it is subscribed to the subject.
-         * @param ps the subject to remove
-         */
-        void remove(PublishSubscriber<T> ps) {
-            TerminalAtomicsHelper.remove(SUBSCRIBERS, this, ps, TERMINATED, EMPTY, this);
-        }
-        
-        @Override
-        public PublishSubscriber[] apply(int value) {
-            return new PublishSubscriber[value];
-        }
-    }
-    
     /**
      * Wraps the actual subscriber, tracks its requests and makes cancellation
      * to remove itself from the current subscribers array.
      *
      * @param <T> the value type
      */
-    static final class PublishSubscriber<T> extends AtomicLong implements Subscriber<T>, Subscription {
-        /** */
+    static final class PublishDisposable<T> extends AtomicBoolean implements Disposable {
+
         private static final long serialVersionUID = 3562861878281475070L;
         /** The actual subscriber. */
-        final Subscriber<? super T> actual;
+        final Observer<? super T> downstream;
         /** The subject state. */
-        final State<T> state;
+        final PublishSubject<T> parent;
 
-        /** Indicates the cancelled state if not zero. */
-        volatile int cancelled;
-        /** Field updater for cancelled. */
-        @SuppressWarnings("rawtypes")
-        static final AtomicIntegerFieldUpdater<PublishSubscriber> CANCELLED =
-                AtomicIntegerFieldUpdater.newUpdater(PublishSubscriber.class, "cancelled");
-        
         /**
          * Constructs a PublishSubscriber, wraps the actual subscriber and the state.
          * @param actual the actual subscriber
-         * @param state the state
+         * @param parent the parent PublishProcessor
          */
-        public PublishSubscriber(Subscriber<? super T> actual, State<T> state) {
-            this.actual = actual;
-            this.state = state;
+        PublishDisposable(Observer<? super T> actual, PublishSubject<T> parent) {
+            this.downstream = actual;
+            this.parent = parent;
         }
-        
-        @Override
-        public void onSubscribe(Subscription s) {
-            // not called because requests are handled locally and cancel is forwared to state
-        }
-        
-        @Override
+
         public void onNext(T t) {
-            long r = get();
-            if (r != 0L) {
-                actual.onNext(t);
-                if (r != Long.MAX_VALUE) {
-                    decrementAndGet();
-                }
-            } else {
-                cancel();
-                actual.onError(new MissingBackpressureException("Could not emit value due to lack of requests"));
+            if (!get()) {
+                downstream.onNext(t);
             }
         }
-        
-        @Override
+
         public void onError(Throwable t) {
-            actual.onError(t);
+            if (get()) {
+                RxJavaPlugins.onError(t);
+            } else {
+                downstream.onError(t);
+            }
         }
-        
-        @Override
+
         public void onComplete() {
-            actual.onComplete();
-        }
-        
-        @Override
-        public void request(long n) {
-            if (SubscriptionHelper.validateRequest(n)) {
-                return;
+            if (!get()) {
+                downstream.onComplete();
             }
-            BackpressureHelper.add(this, n);
         }
-        
+
         @Override
-        public void cancel() {
-            if (cancelled == 0 && CANCELLED.compareAndSet(this, 0, 1)) {
-                state.remove(this);
+        public void dispose() {
+            if (compareAndSet(false, true)) {
+                parent.remove(this);
             }
+        }
+
+        @Override
+        public boolean isDisposed() {
+            return get();
         }
     }
 }

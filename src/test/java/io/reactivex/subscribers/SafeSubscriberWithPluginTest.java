@@ -1,11 +1,11 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
@@ -13,16 +13,16 @@
 
 package io.reactivex.subscribers;
 
+import static org.junit.Assert.*;
+
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 
 import org.junit.*;
 import org.reactivestreams.Subscription;
 
 import io.reactivex.exceptions.*;
+import io.reactivex.functions.Consumer;
 import io.reactivex.plugins.RxJavaPlugins;
-
-import static org.junit.Assert.*;
 
 public class SafeSubscriberWithPluginTest {
     private final class SubscriptionCancelThrows implements Subscription {
@@ -33,7 +33,7 @@ public class SafeSubscriberWithPluginTest {
 
         @Override
         public void request(long n) {
-            
+
         }
     }
 
@@ -52,55 +52,58 @@ public class SafeSubscriberWithPluginTest {
                 throw new TestException();
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         try {
             safe.onComplete();
-            Assert.fail();
-        } catch (OnCompleteFailedException e) {
+            fail();
+        } catch (RuntimeException e) {
             // FIXME no longer assertable
             // assertTrue(safe.isUnsubscribed());
         }
     }
-    
+
     @Test
     public void testOnCompletedThrows2() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onComplete() {
-                throw new OnErrorNotImplementedException(new TestException());
+                throw new RuntimeException(new TestException());
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
-        
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
+
         try {
             safe.onComplete();
-        } catch (OnErrorNotImplementedException ex) {
+        } catch (RuntimeException ex) {
             // expected
         }
-        
+
         // FIXME no longer assertable
         // assertTrue(safe.isUnsubscribed());
     }
-    
-    @Test(expected = OnCompleteFailedException.class)
+
+    @Test(expected = RuntimeException.class)
     @Ignore("Subscribers can't throw")
     public void testPluginException() {
-        RxJavaPlugins.setErrorHandler(e -> {
-            throw new RuntimeException();
+        RxJavaPlugins.setErrorHandler(new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable e) {
+                throw new RuntimeException();
+            }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onComplete() {
                 throw new TestException();
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
-        
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
+
         safe.onComplete();
     }
-    
-    @Test(expected = OnErrorFailedException.class)
+
+    @Test(expected = RuntimeException.class)
     @Ignore("Subscribers can't throw")
     public void testPluginExceptionWhileOnErrorUnsubscribeThrows() {
         RxJavaPlugins.setErrorHandler(new Consumer<Throwable>() {
@@ -112,14 +115,14 @@ public class SafeSubscriberWithPluginTest {
                 }
             }
         });
-        
-        TestSubscriber<Integer> ts = new TestSubscriber<>();
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
+
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         safe.onSubscribe(new SubscriptionCancelThrows());
-        
+
         safe.onError(new TestException());
     }
-    
+
     @Test(expected = RuntimeException.class)
     @Ignore("Subscribers can't throw")
     public void testPluginExceptionWhileOnErrorThrowsNotImplAndUnsubscribeThrows() {
@@ -132,20 +135,20 @@ public class SafeSubscriberWithPluginTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
-                throw new OnErrorNotImplementedException(e);
+                throw new RuntimeException(e);
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         safe.onSubscribe(new SubscriptionCancelThrows());
-        
+
         safe.onError(new TestException());
     }
-    
-    @Test(expected = OnErrorFailedException.class)
+
+    @Test(expected = RuntimeException.class)
     @Ignore("Subscribers can't throw")
     public void testPluginExceptionWhileOnErrorThrows() {
         RxJavaPlugins.setErrorHandler(new Consumer<Throwable>() {
@@ -157,18 +160,19 @@ public class SafeSubscriberWithPluginTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
                 throw new RuntimeException(e);
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
-        
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
+
         safe.onError(new TestException());
     }
-    @Test(expected = OnErrorFailedException.class)
+
+    @Test(expected = RuntimeException.class)
     @Ignore("Subscribers can't throw")
     public void testPluginExceptionWhileOnErrorThrowsAndUnsubscribeThrows() {
         RxJavaPlugins.setErrorHandler(new Consumer<Throwable>() {
@@ -180,19 +184,20 @@ public class SafeSubscriberWithPluginTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
                 throw new RuntimeException(e);
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         safe.onSubscribe(new SubscriptionCancelThrows());
-        
+
         safe.onError(new TestException());
     }
-    @Test(expected = OnErrorFailedException.class)
+
+    @Test(expected = RuntimeException.class)
     @Ignore("Subscribers can't throw")
     public void testPluginExceptionWhenUnsubscribing2() {
         RxJavaPlugins.setErrorHandler(new Consumer<Throwable>() {
@@ -204,19 +209,19 @@ public class SafeSubscriberWithPluginTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
                 throw new RuntimeException(e);
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         safe.onSubscribe(new SubscriptionCancelThrows());
-        
+
         safe.onError(new TestException());
     }
-    
+
     @Test
     @Ignore("Subscribers can't throw")
     public void testPluginErrorHandlerReceivesExceptionWhenUnsubscribeAfterCompletionThrows() {
@@ -227,67 +232,70 @@ public class SafeSubscriberWithPluginTest {
                 calls.incrementAndGet();
             }
         });
-        
-        final AtomicInteger errors = new AtomicInteger();
+
+        final AtomicInteger errorCount = new AtomicInteger();
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
-                errors.incrementAndGet();
+                errorCount.incrementAndGet();
             }
         };
         final RuntimeException ex = new RuntimeException();
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         safe.onSubscribe(new Subscription() {
             @Override
             public void cancel() {
                 throw ex;
             }
-            
+
             @Override
             public void request(long n) {
-                
+
             }
         });
-        
-        try {
-            safe.onComplete();
-            Assert.fail();
-        } catch(UnsubscribeFailedException e) {
-            assertEquals(1, calls.get());
-            assertEquals(0, errors.get());
-        }
+
+//        try {
+//            safe.onComplete();
+//            Assert.fail();
+//        } catch(UnsubscribeFailedException e) {
+//            assertEquals(1, calls.get());
+//            assertEquals(0, errors.get());
+//        }
     }
 
     @Test
     @Ignore("Subscribers can't throw")
     public void testPluginErrorHandlerReceivesExceptionFromFailingUnsubscribeAfterCompletionThrows() {
         final AtomicInteger calls = new AtomicInteger();
-        RxJavaPlugins.setErrorHandler(e -> {
-                calls.incrementAndGet();
+        RxJavaPlugins.setErrorHandler(new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable e) {
+                    calls.incrementAndGet();
+            }
         });
-        
-        final AtomicInteger errors = new AtomicInteger();
+
+        final AtomicInteger errorCount = new AtomicInteger();
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
-            
-            @Override 
+
+            @Override
             public void onComplete() {
                 throw new RuntimeException();
             }
-            
+
             @Override
             public void onError(Throwable e) {
-                errors.incrementAndGet();
+                errorCount.incrementAndGet();
             }
         };
-        SafeSubscriber<Integer> safe = new SafeSubscriber<>(ts);
+        SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         safe.onSubscribe(new SubscriptionCancelThrows());
-        
-        try {
-            safe.onComplete();
-            Assert.fail();
-        } catch(UnsubscribeFailedException e) {
-            assertEquals(2, calls.get());
-            assertEquals(0, errors.get());
-        }
+
+//        try {
+//            safe.onComplete();
+//            Assert.fail();
+//        } catch(UnsubscribeFailedException e) {
+//            assertEquals(2, calls.get());
+//            assertEquals(0, errors.get());
+//        }
     }
 }

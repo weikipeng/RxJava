@@ -1,11 +1,11 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
@@ -13,62 +13,44 @@
 
 package io.reactivex.subjects;
 
-import org.reactivestreams.*;
-
-import io.reactivex.Observable;
+import io.reactivex.*;
+import io.reactivex.annotations.*;
 
 /**
- * Represents a Subscriber and an Observable (Publisher) at the same time, allowing
- * multicasting events from a single source to multiple child Subscribers.
- * <p>All methods except the onSubscribe, onNext, onError and onComplete are thread-safe.
+ * Represents an {@link Observer} and an {@link Observable} at the same time, allowing
+ * multicasting events from a single source to multiple child {@code Observer}s.
+ * <p>
+ * All methods except the {@link #onSubscribe(io.reactivex.disposables.Disposable)}, {@link #onNext(Object)},
+ * {@link #onError(Throwable)} and {@link #onComplete()} are thread-safe.
  * Use {@link #toSerialized()} to make these methods thread-safe as well.
  *
- * @param <T> the source value type
- * @param <R> the emission value type
+ * @param <T> the item value type
  */
-public abstract class Subject<T, R> extends Observable<R> implements Processor<T, R> {
-    
-    protected Subject(Publisher<R> onSubscribe) {
-        super(onSubscribe);
-    }
-    
+public abstract class Subject<T> extends Observable<T> implements Observer<T> {
     /**
-     * Returns true if the subject has subscribers.
+     * Returns true if the subject has any Observers.
      * <p>The method is thread-safe.
-     * @return true if the subject has subscribers
+     * @return true if the subject has any Observers
      */
-    public abstract boolean hasSubscribers();
-    
+    public abstract boolean hasObservers();
+
     /**
      * Returns true if the subject has reached a terminal state through an error event.
      * <p>The method is thread-safe.
      * @return true if the subject has reached a terminal state through an error event
      * @see #getThrowable()
-     * &see {@link #hasComplete()}
+     * @see #hasComplete()
      */
-    public boolean hasThrowable() {
-        throw new UnsupportedOperationException();
-    }
-    
+    public abstract boolean hasThrowable();
+
     /**
      * Returns true if the subject has reached a terminal state through a complete event.
      * <p>The method is thread-safe.
      * @return true if the subject has reached a terminal state through a complete event
      * @see #hasThrowable()
      */
-    public boolean hasComplete() {
-        throw new UnsupportedOperationException();
-    }
-    
-    /**
-     * Returns true if the subject has any value.
-     * <p>The method is thread-safe.
-     * @return true if the subject has any value
-     */
-    public boolean hasValue() {
-        throw new UnsupportedOperationException();
-    }
-    
+    public abstract boolean hasComplete();
+
     /**
      * Returns the error that caused the Subject to terminate or null if the Subject
      * hasn't terminated yet.
@@ -76,60 +58,20 @@ public abstract class Subject<T, R> extends Observable<R> implements Processor<T
      * @return the error that caused the Subject to terminate or null if the Subject
      * hasn't terminated yet
      */
-    public Throwable getThrowable() {
-        throw new UnsupportedOperationException();
-    }
-    
-    /**
-     * Returns a single value the Subject currently has or null if no such value exists.
-     * <p>The method is thread-safe.
-     * @return a single value the Subject currently has or null if no such value exists
-     */
-    public R getValue() {
-        throw new UnsupportedOperationException();
-    }
-    
+    @Nullable
+    public abstract Throwable getThrowable();
+
     /**
      * Wraps this Subject and serializes the calls to the onSubscribe, onNext, onError and
      * onComplete methods, making them thread-safe.
      * <p>The method is thread-safe.
      * @return the wrapped and serialized subject
      */
-    public final Subject<T, R> toSerialized() {
+    @NonNull
+    public final Subject<T> toSerialized() {
         if (this instanceof SerializedSubject) {
             return this;
         }
-        return new SerializedSubject<>(this);
-    }
-    
-    /** An empty array to avoid allocation in getValues(). */
-    private static final Object[] EMPTY = new Object[0];
-    
-    /**
-     * Returns an Object array containing snapshot all values of the Subject.
-     * <p>The method is thread-safe.
-     * @return the array containing the snapshot of all values of the Subject
-     */
-    public Object[] getValues() {
-        @SuppressWarnings("unchecked")
-        R[] a = (R[])EMPTY;
-        R[] b = getValues(a);
-        if (b == EMPTY) {
-            return new Object[0];
-        }
-        return b;
-            
-    }
-    
-    /**
-     * Returns a typed array containing a snapshot of all values of the Subject.
-     * <p>The method follows the conventions of Collection.toArray by setting the array element
-     * after the last value to null (if the capacity permits).
-     * <p>The method is thread-safe.
-     * @param array the target array to copy values into if it fits
-     * @return the given array if the values fit into it or a new array containing all values
-     */
-    public R[] getValues(R[] array) {
-        throw new UnsupportedOperationException();
+        return new SerializedSubject<T>(this);
     }
 }

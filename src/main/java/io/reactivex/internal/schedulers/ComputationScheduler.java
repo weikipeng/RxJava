@@ -1,12 +1,12 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,54 +19,67 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.reactivex.Scheduler;
-import io.reactivex.disposables.Disposable;
+import io.reactivex.annotations.NonNull;
+import io.reactivex.disposables.*;
 import io.reactivex.internal.disposables.*;
+import io.reactivex.internal.functions.ObjectHelper;
 
 /**
  * Holds a fixed pool of worker threads and assigns them
- * to requested Scheduler.Workers in a round-robin fashion. 
+ * to requested Scheduler.Workers in a round-robin fashion.
  */
-public final class ComputationScheduler extends Scheduler {
+public final class ComputationScheduler extends Scheduler implements SchedulerMultiWorkerSupport {
+    /** This will indicate no pool is active. */
+    static final FixedSchedulerPool NONE;
     /** Manages a fixed number of workers. */
-    private static final String THREAD_NAME_PREFIX = "RxComputationThreadPool-";
-    private static final RxThreadFactory THREAD_FACTORY = new RxThreadFactory(THREAD_NAME_PREFIX);
-    /** 
+    private static final String THREAD_NAME_PREFIX = "RxComputationThreadPool";
+    static final RxThreadFactory THREAD_FACTORY;
+    /**
      * Key to setting the maximum number of computation scheduler threads.
      * Zero or less is interpreted as use available. Capped by available.
      */
     static final String KEY_MAX_THREADS = "rx2.computation-threads";
     /** The maximum number of computation scheduler threads. */
     static final int MAX_THREADS;
-    static {
-        int maxThreads = Integer.getInteger(KEY_MAX_THREADS, 0);
-        int ncpu = Runtime.getRuntime().availableProcessors();
-        int max;
-        if (maxThreads <= 0 || maxThreads > ncpu) {
-            max = ncpu;
-        } else {
-            max = maxThreads;
-        }
-        MAX_THREADS = max;
-    }
-    
+
     static final PoolWorker SHUTDOWN_WORKER;
+
+    final ThreadFactory threadFactory;
+    final AtomicReference<FixedSchedulerPool> pool;
+    /** The name of the system property for setting the thread priority for this Scheduler. */
+    private static final String KEY_COMPUTATION_PRIORITY = "rx2.computation-priority";
+
     static {
-        SHUTDOWN_WORKER = new PoolWorker(new RxThreadFactory("RxComputationShutdown-"));
+        MAX_THREADS = cap(Runtime.getRuntime().availableProcessors(), Integer.getInteger(KEY_MAX_THREADS, 0));
+
+        SHUTDOWN_WORKER = new PoolWorker(new RxThreadFactory("RxComputationShutdown"));
         SHUTDOWN_WORKER.dispose();
+
+        int priority = Math.max(Thread.MIN_PRIORITY, Math.min(Thread.MAX_PRIORITY,
+                Integer.getInteger(KEY_COMPUTATION_PRIORITY, Thread.NORM_PRIORITY)));
+
+        THREAD_FACTORY = new RxThreadFactory(THREAD_NAME_PREFIX, priority, true);
+
+        NONE = new FixedSchedulerPool(0, THREAD_FACTORY);
+        NONE.shutdown();
     }
-    
-    static final class FixedSchedulerPool {
+
+    static int cap(int cpuCount, int paramThreads) {
+        return paramThreads <= 0 || paramThreads > cpuCount ? cpuCount : paramThreads;
+    }
+
+    static final class FixedSchedulerPool implements SchedulerMultiWorkerSupport {
         final int cores;
 
         final PoolWorker[] eventLoops;
         long n;
 
-        FixedSchedulerPool(int maxThreads) {
+        FixedSchedulerPool(int maxThreads, ThreadFactory threadFactory) {
             // initialize event loops
             this.cores = maxThreads;
             this.eventLoops = new PoolWorker[maxThreads];
             for (int i = 0; i < maxThreads; i++) {
-                this.eventLoops[i] = new PoolWorker(THREAD_FACTORY);
+                this.eventLoops[i] = new PoolWorker(threadFactory);
             }
         }
 
@@ -78,52 +91,88 @@ public final class ComputationScheduler extends Scheduler {
             // simple round robin, improvements to come
             return eventLoops[(int)(n++ % c)];
         }
-        
+
         public void shutdown() {
             for (PoolWorker w : eventLoops) {
                 w.dispose();
             }
         }
-    }
-    /** This will indicate no pool is active. */
-    static final FixedSchedulerPool NONE = new FixedSchedulerPool(0);
 
-    final AtomicReference<FixedSchedulerPool> pool;
-    
+        @Override
+        public void createWorkers(int number, WorkerCallback callback) {
+            int c = cores;
+            if (c == 0) {
+                for (int i = 0; i < number; i++) {
+                    callback.onWorker(i, SHUTDOWN_WORKER);
+                }
+            } else {
+                int index = (int)n % c;
+                for (int i = 0; i < number; i++) {
+                    callback.onWorker(i, new EventLoopWorker(eventLoops[index]));
+                    if (++index == c) {
+                        index = 0;
+                    }
+                }
+                n = index;
+            }
+        }
+    }
+
     /**
      * Create a scheduler with pool size equal to the available processor
      * count and using least-recent worker selection policy.
      */
     public ComputationScheduler() {
-        this.pool = new AtomicReference<>(NONE);
+        this(THREAD_FACTORY);
+    }
+
+    /**
+     * Create a scheduler with pool size equal to the available processor
+     * count and using least-recent worker selection policy.
+     *
+     * @param threadFactory thread factory to use for creating worker threads. Note that this takes precedence over any
+     *                      system properties for configuring new thread creation. Cannot be null.
+     */
+    public ComputationScheduler(ThreadFactory threadFactory) {
+        this.threadFactory = threadFactory;
+        this.pool = new AtomicReference<FixedSchedulerPool>(NONE);
         start();
     }
-    
+
+    @NonNull
     @Override
     public Worker createWorker() {
         return new EventLoopWorker(pool.get().getEventLoop());
     }
-    
+
     @Override
-    public Disposable scheduleDirect(Runnable run, long delay, TimeUnit unit) {
+    public void createWorkers(int number, WorkerCallback callback) {
+        ObjectHelper.verifyPositive(number, "number > 0 required");
+        pool.get().createWorkers(number, callback);
+    }
+
+    @NonNull
+    @Override
+    public Disposable scheduleDirect(@NonNull Runnable run, long delay, TimeUnit unit) {
         PoolWorker w = pool.get().getEventLoop();
         return w.scheduleDirect(run, delay, unit);
     }
-    
+
+    @NonNull
     @Override
-    public Disposable schedulePeriodicallyDirect(Runnable run, long initialDelay, long period, TimeUnit unit) {
+    public Disposable schedulePeriodicallyDirect(@NonNull Runnable run, long initialDelay, long period, TimeUnit unit) {
         PoolWorker w = pool.get().getEventLoop();
         return w.schedulePeriodicallyDirect(run, initialDelay, period, unit);
     }
-    
+
     @Override
     public void start() {
-        FixedSchedulerPool update = new FixedSchedulerPool(MAX_THREADS);
+        FixedSchedulerPool update = new FixedSchedulerPool(MAX_THREADS, threadFactory);
         if (!pool.compareAndSet(NONE, update)) {
             update.shutdown();
         }
     }
-    
+
     @Override
     public void shutdown() {
         for (;;) {
@@ -137,23 +186,23 @@ public final class ComputationScheduler extends Scheduler {
             }
         }
     }
-    
 
-    private static class EventLoopWorker extends Scheduler.Worker {
-        private final ListCompositeResource<Disposable> serial;
-        private final SetCompositeResource<Disposable> timed;
-        private final ArrayCompositeResource<Disposable> both;
+
+    static final class EventLoopWorker extends Scheduler.Worker {
+        private final ListCompositeDisposable serial;
+        private final CompositeDisposable timed;
+        private final ListCompositeDisposable both;
         private final PoolWorker poolWorker;
-        
+
         volatile boolean disposed;
 
         EventLoopWorker(PoolWorker poolWorker) {
             this.poolWorker = poolWorker;
-            this.serial = new ListCompositeResource<>(Disposable::dispose);
-            this.timed = new SetCompositeResource<>(Disposable::dispose);
-            this.both = new ArrayCompositeResource<>(2, Disposable::dispose);
-            this.both.lazySet(0, serial);
-            this.both.lazySet(1, timed);
+            this.serial = new ListCompositeDisposable();
+            this.timed = new CompositeDisposable();
+            this.both = new ListCompositeDisposable();
+            this.both.add(serial);
+            this.both.add(timed);
         }
 
         @Override
@@ -165,24 +214,32 @@ public final class ComputationScheduler extends Scheduler {
         }
 
         @Override
-        public Disposable schedule(Runnable action) {
-            if (disposed) {
-                return EmptyDisposable.INSTANCE;
-            }
-            
-            return poolWorker.scheduleActual(action, 0, null, serial);
+        public boolean isDisposed() {
+            return disposed;
         }
+
+        @NonNull
         @Override
-        public Disposable schedule(Runnable action, long delayTime, TimeUnit unit) {
+        public Disposable schedule(@NonNull Runnable action) {
             if (disposed) {
                 return EmptyDisposable.INSTANCE;
             }
-            
+
+            return poolWorker.scheduleActual(action, 0, TimeUnit.MILLISECONDS, serial);
+        }
+
+        @NonNull
+        @Override
+        public Disposable schedule(@NonNull Runnable action, long delayTime, @NonNull TimeUnit unit) {
+            if (disposed) {
+                return EmptyDisposable.INSTANCE;
+            }
+
             return poolWorker.scheduleActual(action, delayTime, unit, timed);
         }
     }
-    
-    private static final class PoolWorker extends NewThreadWorker {
+
+    static final class PoolWorker extends NewThreadWorker {
         PoolWorker(ThreadFactory threadFactory) {
             super(threadFactory);
         }

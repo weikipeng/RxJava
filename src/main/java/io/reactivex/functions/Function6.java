@@ -1,11 +1,11 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
@@ -13,18 +13,30 @@
 
 package io.reactivex.functions;
 
-import java.util.function.Function;
+import io.reactivex.annotations.NonNull;
 
-@FunctionalInterface
-public interface Function6<T1, T2, T3, T4, T5, T6, R> extends Function<Object[], R> {
-    R apply(T1 t1, T2 t2, T3 t3, T4 t4, T5 t5, T6 t6);
-    
-    @Override
-    @SuppressWarnings("unchecked")
-    default R apply(Object[] a) {
-        if (a.length != 6) {
-            throw new IllegalArgumentException("Array of size 6 expected but got " + a.length);
-        }
-        return apply((T1)a[0], (T2)a[1], (T3)a[2], (T4)a[3], (T5)a[4], (T6)a[5]);
-    }
+/**
+ * A functional interface (callback) that computes a value based on multiple input values.
+ * @param <T1> the first value type
+ * @param <T2> the second value type
+ * @param <T3> the third value type
+ * @param <T4> the fourth value type
+ * @param <T5> the fifth value type
+ * @param <T6> the sixth value type
+ * @param <R> the result type
+ */
+public interface Function6<T1, T2, T3, T4, T5, T6, R> {
+    /**
+     * Calculate a value based on the input values.
+     * @param t1 the first value
+     * @param t2 the second value
+     * @param t3 the third value
+     * @param t4 the fourth value
+     * @param t5 the fifth value
+     * @param t6 the sixth value
+     * @return the result value
+     * @throws Exception on error
+     */
+    @NonNull
+    R apply(@NonNull T1 t1, @NonNull T2 t2, @NonNull T3 t3, @NonNull T4 t4, @NonNull T5 t5, @NonNull T6 t6) throws Exception;
 }

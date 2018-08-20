@@ -1,11 +1,11 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
@@ -13,66 +13,54 @@
 
 package io.reactivex;
 
-import java.util.Optional;
+import static org.junit.Assert.*;
 
-import org.junit.*;
+import org.junit.Test;
+
+import io.reactivex.exceptions.TestException;
 
 public class NotificationTest {
-	
-	@Test(expected = NullPointerException.class)
-	public void testOnNextIntegerNotificationDoesNotEqualNullNotification(){
-		final Try<Optional<Integer>> integerNotification = Notification.next(1);
-		final Try<Optional<Integer>> nullNotification = Notification.next(null);
-		Assert.assertFalse(integerNotification.equals(nullNotification));
-	}
-	
-	@Test(expected = NullPointerException.class)
-	public void testOnNextNullNotificationDoesNotEqualIntegerNotification(){
-		final Try<Optional<Integer>> integerNotification = Notification.next(1);
-		final Try<Optional<Integer>> nullNotification = Notification.next(null);
-		Assert.assertFalse(nullNotification.equals(integerNotification));
-	}
-	
-	@Test
-	public void testOnNextIntegerNotificationsWhenEqual(){
-		final Try<Optional<Integer>> integerNotification = Notification.next(1);
-		final Try<Optional<Integer>> integerNotification2 = Notification.next(1);
-		Assert.assertTrue(integerNotification.equals(integerNotification2));
-	}
-	
-	@Test
-	public void testOnNextIntegerNotificationsWhenNotEqual(){
-		final Try<Optional<Integer>> integerNotification = Notification.next(1);
-		final Try<Optional<Integer>> integerNotification2 = Notification.next(2);
-		Assert.assertFalse(integerNotification.equals(integerNotification2));
-	}
-	
-	@Test
-	public void testOnErrorIntegerNotificationDoesNotEqualNullNotification(){
-		final Try<Optional<Integer>> integerNotification = Notification.error(new Exception());
-		final Try<Optional<Integer>> nullNotification = Notification.error(null);
-		Assert.assertFalse(integerNotification.equals(nullNotification));
-	}
-	
-	@Test
-	public void testOnErrorNullNotificationDoesNotEqualIntegerNotification(){
-		final Try<Optional<Integer>> integerNotification = Notification.error(new Exception());
-		final Try<Optional<Integer>> nullNotification = Notification.error(null);
-		Assert.assertFalse(nullNotification.equals(integerNotification));
-	}
 
-	@Test
-	public void testOnErrorIntegerNotificationsWhenEqual(){
-		final Exception exception = new Exception();
-		final Try<Optional<Integer>> onErrorNotification = Notification.error(exception);
-		final Try<Optional<Integer>> onErrorNotification2 = Notification.error(exception);
-		Assert.assertTrue(onErrorNotification.equals(onErrorNotification2));
-	}
-	
-	@Test
-	public void testOnErrorIntegerNotificationWhenNotEqual(){
-		final Try<Optional<Integer>> onErrorNotification = Notification.error(new Exception());
-		final Try<Optional<Integer>> onErrorNotification2 = Notification.error(new Exception());
-		Assert.assertFalse(onErrorNotification.equals(onErrorNotification2));
-	}
+    @Test
+    public void valueOfOnErrorIsNull() {
+        Notification<Integer> notification = Notification.createOnError(new TestException());
+
+        assertNull(notification.getValue());
+        assertTrue(notification.getError().toString(), notification.getError() instanceof TestException);
+    }
+
+    @Test
+    public void valueOfOnCompleteIsNull() {
+        Notification<Integer> notification = Notification.createOnComplete();
+
+        assertNull(notification.getValue());
+        assertNull(notification.getError());
+        assertTrue(notification.isOnComplete());
+    }
+
+    @Test
+    public void notEqualsToObject() {
+        Notification<Integer> n1 = Notification.createOnNext(0);
+        assertFalse(n1.equals(0));
+        Notification<Integer> n2 = Notification.createOnError(new TestException());
+        assertFalse(n2.equals(0));
+        Notification<Integer> n3 = Notification.createOnComplete();
+        assertFalse(n3.equals(0));
+    }
+
+    @Test
+    public void hashCodeIsTheInner() {
+        Notification<Integer> n1 = Notification.createOnNext(1337);
+
+        assertEquals(Integer.valueOf(1337).hashCode(), n1.hashCode());
+
+        assertEquals(0, Notification.createOnComplete().hashCode());
+    }
+
+    @Test
+    public void toStringPattern() {
+        assertEquals("OnNextNotification[1]", Notification.createOnNext(1).toString());
+        assertEquals("OnErrorNotification[io.reactivex.exceptions.TestException]", Notification.createOnError(new TestException()).toString());
+        assertEquals("OnCompleteNotification", Notification.createOnComplete().toString());
+    }
 }

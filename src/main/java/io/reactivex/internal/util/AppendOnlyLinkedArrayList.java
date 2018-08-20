@@ -1,11 +1,11 @@
 /**
- * Copyright 2015 Netflix, Inc.
- * 
+ * Copyright (c) 2016-present, RxJava Contributors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is
  * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See
  * the License for the specific language governing permissions and limitations under the License.
@@ -13,7 +13,10 @@
 
 package io.reactivex.internal.util;
 
-import java.util.function.*;
+import org.reactivestreams.Subscriber;
+
+import io.reactivex.Observer;
+import io.reactivex.functions.*;
 
 /**
  * A linked-array-list implementation that only supports appending and consumption.
@@ -22,12 +25,12 @@ import java.util.function.*;
  */
 public class AppendOnlyLinkedArrayList<T> {
     final int capacity;
-    Object[] head;
+    final Object[] head;
     Object[] tail;
     int offset;
-    
+
     /**
-     * Constructs an empty list with a per-link capacity
+     * Constructs an empty list with a per-link capacity.
      * @param capacity the capacity of each link
      */
     public AppendOnlyLinkedArrayList(int capacity) {
@@ -35,7 +38,7 @@ public class AppendOnlyLinkedArrayList<T> {
         this.head = new Object[capacity + 1];
         this.tail = head;
     }
-    
+
     /**
      * Append a non-null value to the list.
      * <p>Don't add null to the list!
@@ -53,7 +56,7 @@ public class AppendOnlyLinkedArrayList<T> {
         tail[o] = value;
         offset = o + 1;
     }
-    
+
     /**
      * Set a value as the first element of the list.
      * @param value the value to set
@@ -61,41 +64,31 @@ public class AppendOnlyLinkedArrayList<T> {
     public void setFirst(T value) {
         head[0] = value;
     }
-    
+
     /**
-     * Loops through all elements of the list.
-     * @param consumer the consumer of elements
+     * Predicate interface suppressing the exception.
+     *
+     * @param <T> the value type
      */
-    @SuppressWarnings("unchecked")
-    public void forEach(Consumer<? super T> consumer) {
-        Object[] a = head;
-        final int c = capacity;
-        while (a != null) {
-            for (int i = 0; i < c; i++) {
-                Object o = a[i];
-                if (o == null) {
-                    return;
-                }
-                consumer.accept((T)o);
-            }
-            a = (Object[])a[c];
-        }
+    public interface NonThrowingPredicate<T> extends Predicate<T> {
+        @Override
+        boolean test(T t);
     }
-    
+
     /**
      * Loops over all elements of the array until a null element is encountered or
      * the given predicate returns true.
      * @param consumer the consumer of values that returns true if the forEach should terminate
      */
     @SuppressWarnings("unchecked")
-    public void forEachWhile(Predicate<? super T> consumer) {
+    public void forEachWhile(NonThrowingPredicate<? super T> consumer) {
         Object[] a = head;
         final int c = capacity;
         while (a != null) {
             for (int i = 0; i < c; i++) {
                 Object o = a[i];
                 if (o == null) {
-                    return;
+                    break;
                 }
                 if (consumer.test((T)o)) {
                     return;
@@ -104,12 +97,75 @@ public class AppendOnlyLinkedArrayList<T> {
             a = (Object[])a[c];
         }
     }
-    
-    @SuppressWarnings("unchecked")
-    public <S> void forEachWhile(S state, BiPredicate<? super S, ? super T> consumer) {
+
+    /**
+     * Interprets the contents as NotificationLite objects and calls
+     * the appropriate Subscriber method.
+     * 
+     * @param <U> the target type
+     * @param subscriber the subscriber to emit the events to
+     * @return true if a terminal event has been reached
+     */
+    public <U> boolean accept(Subscriber<? super U> subscriber) {
         Object[] a = head;
         final int c = capacity;
         while (a != null) {
+            for (int i = 0; i < c; i++) {
+                Object o = a[i];
+                if (o == null) {
+                    break;
+                }
+
+                if (NotificationLite.acceptFull(o, subscriber)) {
+                    return true;
+                }
+            }
+            a = (Object[])a[c];
+        }
+        return false;
+    }
+
+
+    /**
+     * Interprets the contents as NotificationLite objects and calls
+     * the appropriate Observer method.
+     * 
+     * @param <U> the target type
+     * @param observer the observer to emit the events to
+     * @return true if a terminal event has been reached
+     */
+    public <U> boolean accept(Observer<? super U> observer) {
+        Object[] a = head;
+        final int c = capacity;
+        while (a != null) {
+            for (int i = 0; i < c; i++) {
+                Object o = a[i];
+                if (o == null) {
+                    break;
+                }
+
+                if (NotificationLite.acceptFull(o, observer)) {
+                    return true;
+                }
+            }
+            a = (Object[])a[c];
+        }
+        return false;
+    }
+
+    /**
+     * Loops over all elements of the array until a null element is encountered or
+     * the given predicate returns true.
+     * @param <S> the extra state type
+     * @param state the extra state passed into the consumer
+     * @param consumer the consumer of values that returns true if the forEach should terminate
+     * @throws Exception if the predicate throws
+     */
+    @SuppressWarnings("unchecked")
+    public <S> void forEachWhile(S state, BiPredicate<? super S, ? super T> consumer) throws Exception {
+        Object[] a = head;
+        final int c = capacity;
+        for (;;) {
             for (int i = 0; i < c; i++) {
                 Object o = a[i];
                 if (o == null) {
