@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,14 +15,12 @@
  */
 package rx.internal.operators;
 
-import java.util.Iterator;
-import java.util.NoSuchElementException;
+import java.util.*;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.atomic.AtomicReference;
 
-import rx.Notification;
+import rx.*;
 import rx.Observable;
-import rx.Subscriber;
 import rx.exceptions.Exceptions;
 
 /**
@@ -39,6 +37,7 @@ public final class BlockingOperatorLatest {
      * Returns an {@code Iterable} that blocks until or unless the {@code Observable} emits an item that has not
      * been returned by the {@code Iterable}, then returns that item
      *
+     * @param <T> the value type
      * @param source
      *            the source {@code Observable}
      * @return an {@code Iterable} that blocks until or unless the {@code Observable} emits an item that has not
@@ -46,10 +45,11 @@ public final class BlockingOperatorLatest {
      */
     public static <T> Iterable<T> latest(final Observable<? extends T> source) {
         return new Iterable<T>() {
+            @SuppressWarnings("unchecked")
             @Override
             public Iterator<T> iterator() {
                 LatestObserverIterator<T> lio = new LatestObserverIterator<T>();
-                source.materialize().subscribe(lio);
+                ((Observable<T>)source).materialize().subscribe(lio);
                 return lio;
             }
         };
@@ -59,16 +59,14 @@ public final class BlockingOperatorLatest {
     static final class LatestObserverIterator<T> extends Subscriber<Notification<? extends T>> implements Iterator<T> {
         final Semaphore notify = new Semaphore(0);
         // observer's notification
-        volatile Notification<? extends T> value;
-        /** Updater for the value field. */
-        @SuppressWarnings("rawtypes")
-        static final AtomicReferenceFieldUpdater<LatestObserverIterator, Notification> REFERENCE_UPDATER
-                = AtomicReferenceFieldUpdater.newUpdater(LatestObserverIterator.class, Notification.class, "value");
+        final AtomicReference<Notification<? extends T>> value = new AtomicReference<Notification<? extends T>>();
+        // iterator's notification
+        Notification<? extends T> iteratorNotification;
 
         @Override
         public void onNext(Notification<? extends T> args) {
-            boolean wasntAvailable = REFERENCE_UPDATER.getAndSet(this, args) == null;
-            if (wasntAvailable) {
+            boolean wasNotAvailable = value.getAndSet(args) == null;
+            if (wasNotAvailable) {
                 notify.release();
             }
         }
@@ -83,42 +81,38 @@ public final class BlockingOperatorLatest {
             // not expected
         }
 
-        // iterator's notification
-        Notification<? extends T> iNotif;
-
         @Override
         public boolean hasNext() {
-            if (iNotif != null && iNotif.isOnError()) {
-                throw Exceptions.propagate(iNotif.getThrowable());
+            if (iteratorNotification != null && iteratorNotification.isOnError()) {
+                throw Exceptions.propagate(iteratorNotification.getThrowable());
             }
-            if (iNotif == null || !iNotif.isOnCompleted()) {
-                if (iNotif == null) {
+            if (iteratorNotification == null || !iteratorNotification.isOnCompleted()) {
+                if (iteratorNotification == null) {
                     try {
                         notify.acquire();
                     } catch (InterruptedException ex) {
                         unsubscribe();
                         Thread.currentThread().interrupt();
-                        iNotif = Notification.createOnError(ex);
+                        iteratorNotification = Notification.createOnError(ex);
                         throw Exceptions.propagate(ex);
                     }
 
-                    @SuppressWarnings("unchecked")
-                    Notification<? extends T> n = REFERENCE_UPDATER.getAndSet(this, null);
-                    iNotif = n;
-                    if (iNotif.isOnError()) {
-                        throw Exceptions.propagate(iNotif.getThrowable());
+                    Notification<? extends T> n = value.getAndSet(null);
+                    iteratorNotification = n;
+                    if (iteratorNotification.isOnError()) {
+                        throw Exceptions.propagate(iteratorNotification.getThrowable());
                     }
                 }
             }
-            return !iNotif.isOnCompleted();
+            return !iteratorNotification.isOnCompleted();
         }
 
         @Override
         public T next() {
             if (hasNext()) {
-                if (iNotif.isOnNext()) {
-                    T v = iNotif.getValue();
-                    iNotif = null;
+                if (iteratorNotification.isOnNext()) {
+                    T v = iteratorNotification.getValue();
+                    iteratorNotification = null;
                     return v;
                 }
             }

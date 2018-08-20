@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,20 +17,24 @@ package rx.internal.operators;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+import rx.*;
 import rx.Observable.Operator;
-import rx.Producer;
-import rx.Subscriber;
+import rx.exceptions.Exceptions;
 import rx.functions.Action1;
+import rx.plugins.RxJavaHooks;
 
 public class OperatorOnBackpressureDrop<T> implements Operator<T, T> {
 
+    final Action1<? super T> onDrop;
+
     /** Lazy initialization via inner-class holder. */
-    private static final class Holder {
+    static final class Holder {
         /** A singleton instance. */
         static final OperatorOnBackpressureDrop<Object> INSTANCE = new OperatorOnBackpressureDrop<Object>();
     }
 
     /**
+     * @param <T> the value type
      * @return a singleton instance of this stateless operator.
      */
     @SuppressWarnings({ "unchecked" })
@@ -38,9 +42,7 @@ public class OperatorOnBackpressureDrop<T> implements Operator<T, T> {
         return (OperatorOnBackpressureDrop<T>)Holder.INSTANCE;
     }
 
-    private final Action1<? super T> onDrop;
-
-    private OperatorOnBackpressureDrop() {
+    OperatorOnBackpressureDrop() {
         this(null);
     }
 
@@ -61,6 +63,9 @@ public class OperatorOnBackpressureDrop<T> implements Operator<T, T> {
 
         });
         return new Subscriber<T>(child) {
+
+            boolean done;
+
             @Override
             public void onStart() {
                 request(Long.MAX_VALUE);
@@ -68,23 +73,38 @@ public class OperatorOnBackpressureDrop<T> implements Operator<T, T> {
 
             @Override
             public void onCompleted() {
-                child.onCompleted();
+                if (!done) {
+                    done = true;
+                    child.onCompleted();
+                }
             }
 
             @Override
             public void onError(Throwable e) {
-                child.onError(e);
+                if (!done) {
+                    done = true;
+                    child.onError(e);
+                } else {
+                   RxJavaHooks.onError(e);
+                }
             }
 
             @Override
             public void onNext(T t) {
+                if (done) {
+                    return;
+                }
                 if (requested.get() > 0) {
                     child.onNext(t);
                     requested.decrementAndGet();
                 } else {
                     // item dropped
-                    if(onDrop != null) {
-                        onDrop.call(t);
+                    if (onDrop != null) {
+                        try {
+                            onDrop.call(t);
+                        } catch (Throwable e) {
+                            Exceptions.throwOrReport(e, this, t);
+                        }
                     }
                 }
             }

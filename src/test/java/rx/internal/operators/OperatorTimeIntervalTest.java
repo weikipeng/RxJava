@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,8 +26,9 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-import rx.Observable;
-import rx.Observer;
+import rx.*;
+import rx.functions.Func1;
+import rx.plugins.RxJavaHooks;
 import rx.schedulers.TestScheduler;
 import rx.schedulers.TimeInterval;
 import rx.subjects.PublishSubject;
@@ -72,5 +73,42 @@ public class OperatorTimeIntervalTest {
                 new TimeInterval<Integer>(3000, 3));
         inOrder.verify(observer, times(1)).onCompleted();
         inOrder.verifyNoMoreInteractions();
+    }
+
+    @Test
+    public void withDefaultScheduler() {
+
+        final TestScheduler scheduler = new TestScheduler();
+
+        RxJavaHooks.setOnComputationScheduler(new Func1<Scheduler, Scheduler>() {
+            @Override
+            public Scheduler call(Scheduler t) {
+                return scheduler;
+            }
+        });
+
+        try {
+            InOrder inOrder = inOrder(observer);
+            subject.timeInterval().subscribe(observer);
+
+            scheduler.advanceTimeBy(1000, TIME_UNIT);
+            subject.onNext(1);
+            scheduler.advanceTimeBy(2000, TIME_UNIT);
+            subject.onNext(2);
+            scheduler.advanceTimeBy(3000, TIME_UNIT);
+            subject.onNext(3);
+            subject.onCompleted();
+
+            inOrder.verify(observer, times(1)).onNext(
+                    new TimeInterval<Integer>(1000, 1));
+            inOrder.verify(observer, times(1)).onNext(
+                    new TimeInterval<Integer>(2000, 2));
+            inOrder.verify(observer, times(1)).onNext(
+                    new TimeInterval<Integer>(3000, 3));
+            inOrder.verify(observer, times(1)).onCompleted();
+            inOrder.verifyNoMoreInteractions();
+        } finally {
+            RxJavaHooks.reset();
+        }
     }
 }

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,30 +16,23 @@
 package rx.internal.operators;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.*;
 
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.Test;
 
-import rx.Observable;
-import rx.Observer;
-import rx.Subscription;
-import rx.observers.TestObserver;
+import rx.*;
 import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
 
 public class OnSubscribeToObservableFutureTest {
+    @Test
+    public void constructorShouldBePrivate() {
+        TestUtil.checkUtilityClass(OnSubscribeToObservableFuture.class);
+    }
 
     @Test
     public void testSuccess() throws Exception {
@@ -50,7 +43,7 @@ public class OnSubscribeToObservableFutureTest {
         @SuppressWarnings("unchecked")
         Observer<Object> o = mock(Observer.class);
 
-        Subscription sub = Observable.from(future).subscribe(new TestObserver<Object>(o));
+        Subscription sub = Observable.from(future).subscribe(new TestSubscriber<Object>(o));
         sub.unsubscribe();
 
         verify(o, times(1)).onNext(value);
@@ -68,7 +61,7 @@ public class OnSubscribeToObservableFutureTest {
         @SuppressWarnings("unchecked")
         Observer<Object> o = mock(Observer.class);
 
-        Subscription sub = Observable.from(future).subscribe(new TestObserver<Object>(o));
+        Subscription sub = Observable.from(future).subscribe(new TestSubscriber<Object>(o));
         sub.unsubscribe();
 
         verify(o, never()).onNext(null);
@@ -90,7 +83,7 @@ public class OnSubscribeToObservableFutureTest {
         testSubscriber.unsubscribe();
         Observable.from(future).subscribe(testSubscriber);
         assertEquals(0, testSubscriber.getOnErrorEvents().size());
-        assertEquals(0, testSubscriber.getOnCompletedEvents().size());
+        assertEquals(0, testSubscriber.getCompletions());
     }
 
     @Test
@@ -136,7 +129,90 @@ public class OnSubscribeToObservableFutureTest {
         Subscription sub = futureObservable.subscribeOn(Schedulers.computation()).subscribe(testSubscriber);
         sub.unsubscribe();
         assertEquals(0, testSubscriber.getOnErrorEvents().size());
-        assertEquals(0, testSubscriber.getOnCompletedEvents().size());
+        assertEquals(0, testSubscriber.getCompletions());
         assertEquals(0, testSubscriber.getOnNextEvents().size());
+    }
+
+    @Test
+    public void backpressure() {
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>(0);
+
+        FutureTask<Integer> f = new FutureTask<Integer>(new Runnable() {
+            @Override
+            public void run() {
+
+            }
+        }, 1);
+
+        f.run();
+
+        Observable.from(f).subscribe(ts);
+
+        ts.assertNoValues();
+
+        ts.requestMore(1);
+
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void withTimeoutNoTimeout() {
+        FutureTask<Integer> task = new FutureTask<Integer>(new Runnable() {
+            @Override
+            public void run() {
+
+            }
+        }, 1);
+
+        task.run();
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Observable.from(task, 1, TimeUnit.SECONDS).subscribe(ts);
+
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void withTimeoutTimeout() {
+        FutureTask<Integer> task = new FutureTask<Integer>(new Runnable() {
+            @Override
+            public void run() {
+
+            }
+        }, 1);
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Observable.from(task, 10, TimeUnit.MILLISECONDS).subscribe(ts);
+
+        ts.assertNoValues();
+        ts.assertError(TimeoutException.class);
+        ts.assertNotCompleted();
+    }
+
+    @Test
+    public void withTimeoutNoTimeoutScheduler() {
+        FutureTask<Integer> task = new FutureTask<Integer>(new Runnable() {
+            @Override
+            public void run() {
+
+            }
+        }, 1);
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Observable.from(task, Schedulers.computation()).subscribe(ts);
+
+        task.run();
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertCompleted();
     }
 }

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,7 @@ package rx.observers;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-import java.util.Arrays;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -26,8 +26,10 @@ import org.junit.*;
 import org.junit.rules.ExpectedException;
 import org.mockito.InOrder;
 
-import rx.*;
+import rx.Observable;
+import rx.Observer;
 import rx.Scheduler.Worker;
+import rx.Subscriber;
 import rx.exceptions.*;
 import rx.functions.Action0;
 import rx.schedulers.Schedulers;
@@ -70,7 +72,7 @@ public class TestSubscriberTest {
         oi.subscribe(o);
 
         thrown.expect(AssertionError.class);
-        thrown.expectMessage("Value at index: 1 expected to be [3] (Integer) but was: [2] (Integer)");
+        thrown.expectMessage("Value at index: 1 expected: [3] (Integer) but was: [2] (Integer)");
 
 
         o.assertReceivedOnNext(Arrays.asList(1, 3));
@@ -130,7 +132,7 @@ public class TestSubscriberTest {
         Observable.error(e).subscribe(subscriber);
         subscriber.assertError(e);
     }
-    
+
     @Test
     public void testAwaitTerminalEventWithDuration() {
         TestSubscriber<Object> ts = new TestSubscriber<Object>();
@@ -138,7 +140,7 @@ public class TestSubscriberTest {
         ts.awaitTerminalEvent(1, TimeUnit.SECONDS);
         ts.assertTerminalEvent();
     }
-    
+
     @Test
     public void testAwaitTerminalEventWithDurationAndUnsubscribeOnTimeout() {
         TestSubscriber<Object> ts = new TestSubscriber<Object>();
@@ -162,37 +164,38 @@ public class TestSubscriberTest {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>((Observer<Integer>)null);
         ts.onCompleted();
     }
-    
+
     @Test(expected = NullPointerException.class)
     public void testNullDelegate2() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>((Subscriber<Integer>)null);
         ts.onCompleted();
     }
-    
+
     @Test(expected = NullPointerException.class)
     public void testNullDelegate3() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>((Subscriber<Integer>)null, 0);
         ts.onCompleted();
     }
-    
+
     @Test
     public void testDelegate1() {
-        TestObserver<Integer> to = new TestObserver<Integer>();
+        @SuppressWarnings("unchecked")
+        Observer<Integer> to = mock(Observer.class);
         TestSubscriber<Integer> ts = TestSubscriber.create(to);
         ts.onCompleted();
-        
-        to.assertTerminalEvent();
+
+        verify(to).onCompleted();
     }
-    
+
     @Test
     public void testDelegate2() {
         TestSubscriber<Integer> ts1 = TestSubscriber.create();
         TestSubscriber<Integer> ts2 = TestSubscriber.create(ts1);
         ts2.onCompleted();
-        
+
         ts1.assertCompleted();
     }
-    
+
     @Test
     public void testDelegate3() {
         TestSubscriber<Integer> ts1 = TestSubscriber.create();
@@ -200,7 +203,7 @@ public class TestSubscriberTest {
         ts2.onCompleted();
         ts1.assertCompleted();
     }
-    
+
     @Test
     public void testUnsubscribed() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -212,7 +215,7 @@ public class TestSubscriberTest {
         }
         fail("Not unsubscribed but not reported!");
     }
-    
+
     @Test
     public void testNoErrors() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -225,7 +228,7 @@ public class TestSubscriberTest {
         }
         fail("Error present but no assertion error!");
     }
-    
+
     @Test
     public void testNotCompleted() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -237,7 +240,7 @@ public class TestSubscriberTest {
         }
         fail("Not completed and no assertion error!");
     }
-    
+
     @Test
     public void testMultipleCompletions() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -251,7 +254,7 @@ public class TestSubscriberTest {
         }
         fail("Multiple completions and no assertion error!");
     }
-    
+
     @Test
     public void testCompleted() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -264,7 +267,7 @@ public class TestSubscriberTest {
         }
         fail("Completed and no assertion error!");
     }
-    
+
     @Test
     public void testMultipleCompletions2() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -278,7 +281,7 @@ public class TestSubscriberTest {
         }
         fail("Multiple completions and no assertion error!");
     }
-    
+
     @Test
     public void testMultipleErrors() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -295,7 +298,7 @@ public class TestSubscriberTest {
         }
         fail("Multiple Error present but no assertion error!");
     }
-    
+
     @Test
     public void testMultipleErrors2() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -312,7 +315,7 @@ public class TestSubscriberTest {
         }
         fail("Multiple Error present but no assertion error!");
     }
-    
+
     @Test
     public void testMultipleErrors3() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -329,20 +332,20 @@ public class TestSubscriberTest {
         }
         fail("Multiple Error present but no assertion error!");
     }
-    
+
     @Test
     public void testDifferentError() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
-        ts.onError(new TestException());
+        ts.onError(new TestException("First error"));
         try {
-            ts.assertError(new TestException());
+            ts.assertError(new TestException("Other error"));
         } catch (AssertionError ex) {
             // expected
             return;
         }
         fail("Different Error present but no assertion error!");
     }
-    
+
     @Test
     public void testDifferentError2() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -355,7 +358,7 @@ public class TestSubscriberTest {
         }
         fail("Different Error present but no assertion error!");
     }
-    
+
     @Test
     public void testDifferentError3() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -368,7 +371,7 @@ public class TestSubscriberTest {
         }
         fail("Different Error present but no assertion error!");
     }
-    
+
     @Test
     public void testNoError() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -392,7 +395,7 @@ public class TestSubscriberTest {
         }
         fail("No present but no assertion error!");
     }
-    
+
     @Test
     public void testInterruptTerminalEventAwait() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
@@ -406,7 +409,7 @@ public class TestSubscriberTest {
                     t0.interrupt();
                 }
             }, 200, TimeUnit.MILLISECONDS);
-            
+
             try {
                 ts.awaitTerminalEvent();
                 fail("Did not interrupt wait!");
@@ -419,7 +422,7 @@ public class TestSubscriberTest {
             w.unsubscribe();
         }
     }
-    
+
     @Test
     public void testInterruptTerminalEventAwaitTimed() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
@@ -433,7 +436,7 @@ public class TestSubscriberTest {
                     t0.interrupt();
                 }
             }, 200, TimeUnit.MILLISECONDS);
-            
+
             try {
                 ts.awaitTerminalEvent(5, TimeUnit.SECONDS);
                 fail("Did not interrupt wait!");
@@ -446,7 +449,7 @@ public class TestSubscriberTest {
             w.unsubscribe();
         }
     }
-    
+
     @Test
     public void testInterruptTerminalEventAwaitAndUnsubscribe() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
@@ -460,7 +463,7 @@ public class TestSubscriberTest {
                     t0.interrupt();
                 }
             }, 200, TimeUnit.MILLISECONDS);
-            
+
             ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
             if (!ts.isUnsubscribed()) {
                 fail("Did not unsubscribe!");
@@ -469,13 +472,13 @@ public class TestSubscriberTest {
             w.unsubscribe();
         }
     }
-    
+
     @Test
     public void testNoTerminalEventBut1Completed() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
-        
+
         ts.onCompleted();
-        
+
         try {
             ts.assertNoTerminalEvent();
             fail("Failed to report there were terminal event(s)!");
@@ -483,13 +486,13 @@ public class TestSubscriberTest {
             // expected
         }
     }
-    
+
     @Test
     public void testNoTerminalEventBut1Error() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
-        
+
         ts.onError(new TestException());
-        
+
         try {
             ts.assertNoTerminalEvent();
             fail("Failed to report there were terminal event(s)!");
@@ -497,14 +500,14 @@ public class TestSubscriberTest {
             // expected
         }
     }
-    
+
     @Test
     public void testNoTerminalEventBut1Error1Completed() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
-        
+
         ts.onCompleted();
         ts.onError(new TestException());
-        
+
         try {
             ts.assertNoTerminalEvent();
             fail("Failed to report there were terminal event(s)!");
@@ -512,14 +515,14 @@ public class TestSubscriberTest {
             // expected
         }
     }
-    
+
     @Test
     public void testNoTerminalEventBut2Errors() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
-        
+
         ts.onError(new TestException());
         ts.onError(new TestException());
-        
+
         try {
             ts.assertNoTerminalEvent();
             fail("Failed to report there were terminal event(s)!");
@@ -530,12 +533,12 @@ public class TestSubscriberTest {
             }
         }
     }
-    
+
     @Test
     public void testNoValues() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
         ts.onNext(1);
-        
+
         try {
             ts.assertNoValues();
             fail("Failed to report there were values!");
@@ -543,13 +546,13 @@ public class TestSubscriberTest {
             // expected
         }
     }
-    
+
     @Test
     public void testValueCount() {
         TestSubscriber<Integer> ts = TestSubscriber.create();
         ts.onNext(1);
         ts.onNext(2);
-        
+
         try {
             ts.assertValueCount(3);
             fail("Failed to report there were values!");
@@ -557,42 +560,270 @@ public class TestSubscriberTest {
             // expected
         }
     }
-    
+
     @Test(timeout = 1000)
     public void testOnCompletedCrashCountsDownLatch() {
-        TestObserver<Integer> to = new TestObserver<Integer>() {
+        Observer<Integer> to = new Observer<Integer>() {
             @Override
             public void onCompleted() {
                 throw new TestException();
             }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onNext(Integer t) {
+
+            }
         };
         TestSubscriber<Integer> ts = TestSubscriber.create(to);
-        
+
         try {
             ts.onCompleted();
         } catch (TestException ex) {
             // expected
         }
-        
+
         ts.awaitTerminalEvent();
     }
-    
-    @Test(timeout = 1000)
+
+    @Test(timeout = 5000)
     public void testOnErrorCrashCountsDownLatch() {
-        TestObserver<Integer> to = new TestObserver<Integer>() {
+        Observer<Integer> to = new Observer<Integer>() {
             @Override
             public void onError(Throwable e) {
                 throw new TestException();
             }
+
+            @Override
+            public void onCompleted() {
+
+            }
+
+            @Override
+            public void onNext(Integer t) {
+
+            }
         };
         TestSubscriber<Integer> ts = TestSubscriber.create(to);
-        
+
         try {
             ts.onError(new RuntimeException());
         } catch (TestException ex) {
             // expected
         }
-        
+
         ts.awaitTerminalEvent();
+    }
+
+    @Test
+    public void assertValuesShouldThrowIfNumberOfItemsDoesNotMatch() {
+        TestSubscriber<String> ts = new TestSubscriber<String>();
+
+        ts.onNext("a");
+        ts.onNext("b");
+        ts.onNext("c");
+
+        try {
+            ts.assertValues("1", "2");
+            fail();
+        } catch (AssertionError expected) {
+            assertEquals("Number of items does not match. Provided: 2  Actual: 3.\n" +
+                    "Provided values: [1, 2]\n" +
+                    "Actual values: [a, b, c]\n (0 completions)",
+                    expected.getMessage()
+            );
+        }
+    }
+
+    @Test
+    public void assertionFailureGivesActiveDetails() {
+        TestSubscriber<String> ts = new TestSubscriber<String>();
+
+        ts.onNext("a");
+        ts.onNext("b");
+        ts.onNext("c");
+        ts.onError(new TestException("forced failure"));
+
+        try {
+            ts.assertValues("1", "2");
+            fail();
+        } catch (AssertionError expected) {
+            assertEquals("Number of items does not match. Provided: 2  Actual: 3.\n" +
+                    "Provided values: [1, 2]\n" +
+                    "Actual values: [a, b, c]\n (0 completions) (+1 error)",
+                    expected.getMessage()
+            );
+            Throwable ex = expected.getCause();
+            assertEquals(TestException.class, ex.getClass());
+            assertEquals("forced failure", ex.getMessage());
+        }
+    }
+
+    @Test
+    public void assertionFailureShowsMultipleErrors() {
+        TestSubscriber<String> ts = new TestSubscriber<String>();
+
+        ts.onNext("a");
+        ts.onNext("b");
+        ts.onNext("c");
+        ts.onError(new TestException("forced failure"));
+        ts.onError(new TestException("forced failure 2"));
+
+        try {
+            ts.assertValues("1", "2");
+            fail();
+        } catch (AssertionError expected) {
+            assertEquals("Number of items does not match. Provided: 2  Actual: 3.\n" +
+                    "Provided values: [1, 2]\n" +
+                    "Actual values: [a, b, c]\n (0 completions) (+2 errors)",
+                    expected.getMessage()
+            );
+            Throwable ex = expected.getCause();
+            assertEquals(CompositeException.class, ex.getClass());
+            List<Throwable> list = ((CompositeException)ex).getExceptions();
+            assertEquals(2, list.size());
+            assertEquals("forced failure", list.get(0).getMessage());
+            assertEquals("forced failure 2", list.get(1).getMessage());
+        }
+    }
+
+    @Test
+    public void assertionFailureShowsCompletion() {
+        TestSubscriber<String> ts = new TestSubscriber<String>();
+
+        ts.onNext("a");
+        ts.onNext("b");
+        ts.onNext("c");
+        ts.onCompleted();
+
+        try {
+            ts.assertValues("1", "2");
+            fail();
+        } catch (AssertionError expected) {
+            assertEquals("Number of items does not match. Provided: 2  Actual: 3.\n" +
+                    "Provided values: [1, 2]\n" +
+                    "Actual values: [a, b, c]\n (1 completion)",
+                    expected.getMessage()
+            );
+        }
+    }
+
+    @Test
+    public void assertionFailureShowsMultipleCompletions() {
+        TestSubscriber<String> ts = new TestSubscriber<String>();
+
+        ts.onNext("a");
+        ts.onNext("b");
+        ts.onNext("c");
+        ts.onCompleted();
+        ts.onCompleted();
+
+        try {
+            ts.assertValues("1", "2");
+            fail();
+        } catch (AssertionError expected) {
+            assertEquals("Number of items does not match. Provided: 2  Actual: 3.\n" +
+                    "Provided values: [1, 2]\n" +
+                    "Actual values: [a, b, c]\n (2 completions)",
+                    expected.getMessage()
+            );
+        }
+    }
+
+    @Test
+    public void completionCount() {
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Assert.assertEquals(0, ts.getCompletions());
+
+        ts.onCompleted();
+
+        Assert.assertEquals(1, ts.getCompletions());
+
+        ts.onCompleted();
+
+        Assert.assertEquals(2, ts.getCompletions());
+    }
+
+    @Test
+    public void awaitValueCount() {
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Observable.range(1, 5).delay(100, TimeUnit.MILLISECONDS)
+        .subscribe(ts);
+
+        Assert.assertTrue(ts.awaitValueCount(2, 5, TimeUnit.SECONDS));
+
+        Assert.assertEquals(1, ts.getOnNextEvents().get(0).intValue());
+        Assert.assertEquals(2, ts.getOnNextEvents().get(1).intValue());
+    }
+
+    @Test
+    public void awaitValueCountFails() {
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Observable.range(1, 2).delay(100, TimeUnit.MILLISECONDS)
+        .subscribe(ts);
+
+        Assert.assertFalse(ts.awaitValueCount(5, 1, TimeUnit.SECONDS));
+
+    }
+
+    @Test
+    public void assertAndConsume() {
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        ts.assertNoValues();
+
+        ts.onNext(1);
+
+        ts.assertValuesAndClear(1);
+
+        ts.assertNoValues();
+
+        ts.onNext(2);
+        ts.onNext(3);
+
+        ts.assertValueCount(2);
+
+        ts.assertValuesAndClear(2, 3);
+
+        ts.onNext(4);
+        ts.onNext(5);
+
+        try {
+            ts.assertValuesAndClear(4);
+            Assert.fail("Should have thrown AssertionError");
+        } catch (AssertionError ex) {
+            // expected
+        }
+
+        ts.assertValueCount(2);
+
+        try {
+            ts.assertValuesAndClear(4, 5, 6);
+            Assert.fail("Should have thrown AssertionError");
+        } catch (AssertionError ex) {
+            // expected
+        }
+
+        ts.assertValuesAndClear(4, 5);
+
+        ts.assertNoValues();
+    }
+
+    @Test
+    public void assertAndClearResetsValueCount() {
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        ts.onNext(1);
+        ts.assertValuesAndClear(1);
+
+        ts.assertNoValues();
+        Assert.assertEquals(0, ts.getValueCount());
     }
 }

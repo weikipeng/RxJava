@@ -17,45 +17,44 @@ package rx.internal.operators;
 
 import java.util.*;
 
-import rx.*;
-import rx.Observable.Operator;
 import rx.Observable;
+import rx.Observable.Operator;
 import rx.Observer;
+import rx.Subscriber;
 import rx.observers.SerializedSubscriber;
+import rx.subjects.UnicastSubject;
 
 /**
  * Creates non-overlapping windows of items where each window is terminated by
  * an event from a secondary observable and a new window is started immediately.
- * 
+ *
  * @param <T> the value type
  * @param <U> the boundary value type
  */
 public final class OperatorWindowWithObservable<T, U> implements Operator<Observable<T>, T> {
     final Observable<U> other;
+    /** Indicate the current subject should complete and a new subject be emitted. */
+    static final Object NEXT_SUBJECT = new Object();
 
     public OperatorWindowWithObservable(final Observable<U> other) {
         this.other = other;
     }
-    
+
     @Override
     public Subscriber<? super T> call(Subscriber<? super Observable<T>> child) {
-        
+
         SourceSubscriber<T> sub = new SourceSubscriber<T>(child);
-        BoundarySubscriber<T, U> bs = new BoundarySubscriber<T, U>(child, sub);
-        
+        BoundarySubscriber<T, U> bs = new BoundarySubscriber<T, U>(sub);
+
         child.add(sub);
         child.add(bs);
-        
+
         sub.replaceWindow();
-        
+
         other.unsafeSubscribe(bs);
-        
+
         return sub;
     }
-    /** Indicate the current subject should complete and a new subject be emitted. */
-    static final Object NEXT_SUBJECT = new Object();
-    /** For error and completion indication. */
-    static final NotificationLite<Object> nl = NotificationLite.instance();
     /** Observes the source. */
     static final class SourceSubscriber<T> extends Subscriber<T> {
         final Subscriber<? super Observable<T>> child;
@@ -68,17 +67,17 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
         boolean emitting;
         /** Guarded by guard. */
         List<Object> queue;
-        
+
         public SourceSubscriber(Subscriber<? super Observable<T>> child) {
             this.child = new SerializedSubscriber<Observable<T>>(child);
             this.guard = new Object();
         }
-        
+
         @Override
         public void onStart() {
             request(Long.MAX_VALUE);
         }
-        
+
         @Override
         public void onNext(T t) {
             List<Object> localQueue;
@@ -103,7 +102,7 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
                         once = false;
                         emitValue(t);
                     }
-                    
+
                     synchronized (guard) {
                         localQueue = queue;
                         queue = null;
@@ -131,11 +130,11 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
                 if (o == NEXT_SUBJECT) {
                     replaceSubject();
                 } else
-                if (nl.isError(o)) {
-                    error(nl.getError(o));
+                if (NotificationLite.isError(o)) {
+                    error(NotificationLite.getError(o));
                     break;
                 } else
-                if (nl.isCompleted(o)) {
+                if (NotificationLite.isCompleted(o)) {
                     complete();
                     break;
                 } else {
@@ -154,7 +153,7 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
             child.onNext(producer);
         }
         void createNewWindow() {
-            BufferUntilSubscriber<T> bus = BufferUntilSubscriber.create();
+            UnicastSubject<T> bus = UnicastSubject.create();
             consumer = bus;
             producer = bus;
         }
@@ -164,12 +163,12 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
                 s.onNext(t);
             }
         }
-        
+
         @Override
         public void onError(Throwable e) {
             synchronized (guard) {
                 if (emitting) {
-                    queue = Collections.singletonList(nl.error(e));
+                    queue = Collections.singletonList(NotificationLite.error(e));
                     return;
                 }
                 queue = null;
@@ -186,7 +185,7 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
                     if (queue == null) {
                         queue = new ArrayList<Object>();
                     }
-                    queue.add(nl.completed());
+                    queue.add(NotificationLite.completed());
                     return;
                 }
                 localQueue = queue;
@@ -246,7 +245,7 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
             Observer<T> s = consumer;
             consumer = null;
             producer = null;
-            
+
             if (s != null) {
                 s.onCompleted();
             }
@@ -257,7 +256,7 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
             Observer<T> s = consumer;
             consumer = null;
             producer = null;
-            
+
             if (s != null) {
                 s.onError(e);
             }
@@ -268,15 +267,15 @@ public final class OperatorWindowWithObservable<T, U> implements Operator<Observ
     /** Observes the boundary. */
     static final class BoundarySubscriber<T, U> extends Subscriber<U> {
         final SourceSubscriber<T> sub;
-        public BoundarySubscriber(Subscriber<?> child, SourceSubscriber<T> sub) {
+        public BoundarySubscriber(SourceSubscriber<T> sub) {
             this.sub = sub;
         }
-        
+
         @Override
         public void onStart() {
             request(Long.MAX_VALUE);
         }
-        
+
         @Override
         public void onNext(U t) {
             sub.replaceWindow();

@@ -10,7 +10,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * Original License: https://github.com/JCTools/JCTools/blob/master/LICENSE
  * Original location: https://github.com/JCTools/JCTools/blob/master/jctools-core/src/main/java/org/jctools/queues/ConcurrentCircularArrayQueue.java
  */
@@ -18,8 +18,9 @@ package rx.internal.util.unsafe;
 
 import static rx.internal.util.unsafe.UnsafeAccess.UNSAFE;
 
-import java.util.AbstractQueue;
-import java.util.Iterator;
+import java.util.*;
+
+import rx.internal.util.SuppressAnimalSniffer;
 
 abstract class ConcurrentCircularArrayQueueL0Pad<E> extends AbstractQueue<E> implements MessagePassingQueue<E> {
     long p00, p01, p02, p03, p04, p05, p06, p07;
@@ -29,7 +30,7 @@ abstract class ConcurrentCircularArrayQueueL0Pad<E> extends AbstractQueue<E> imp
 /**
  * A concurrent access enabling class used by circular array based queues this class exposes an offset computation
  * method along with differently memory fenced load/store methods into the underlying array. The class is pre-padded and
- * the array is padded on either side to help with False sharing prvention. It is expected theat subclasses handle post
+ * the array is padded on either side to help with False sharing prevention. It is expected that subclasses handle post
  * padding.
  * <p>
  * Offset calculation is separate from access to enable the reuse of a give compute offset.
@@ -37,11 +38,12 @@ abstract class ConcurrentCircularArrayQueueL0Pad<E> extends AbstractQueue<E> imp
  * Load/Store methods using a <i>buffer</i> parameter are provided to allow the prevention of final field reload after a
  * LoadLoad barrier.
  * <p>
- * 
+ *
  * @author nitsanw
- * 
- * @param <E>
+ *
+ * @param <E> the element type
  */
+@SuppressAnimalSniffer
 public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircularArrayQueueL0Pad<E> {
     protected static final int SPARSE_SHIFT = Integer.getInteger("sparse.shift", 0);
     protected static final int BUFFER_PAD = 32;
@@ -81,7 +83,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
     }
     /**
      * @param index desirable element index
-     * @param mask 
+     * @param mask the binary mask to make the index wrap around
      * @return the offset in bytes within the array for a given index.
      */
     protected final long calcElementOffset(long index, long mask) {
@@ -89,7 +91,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
     }
     /**
      * A plain store (no ordering/fences) of an element to a given offset
-     * 
+     *
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @param e a kitty
      */
@@ -99,7 +101,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
 
     /**
      * A plain store (no ordering/fences) of an element to a given offset
-     * 
+     *
      * @param buffer this.buffer
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @param e an orderly kitty
@@ -110,7 +112,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
 
     /**
      * An ordered store(store + StoreStore barrier) of an element to a given offset
-     * 
+     *
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @param e an orderly kitty
      */
@@ -120,7 +122,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
 
     /**
      * An ordered store(store + StoreStore barrier) of an element to a given offset
-     * 
+     *
      * @param buffer this.buffer
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @param e an orderly kitty
@@ -131,7 +133,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
 
     /**
      * A plain load (no ordering/fences) of an element from a given offset.
-     * 
+     *
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @return the element at the offset
      */
@@ -141,7 +143,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
 
     /**
      * A plain load (no ordering/fences) of an element from a given offset.
-     * 
+     *
      * @param buffer this.buffer
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @return the element at the offset
@@ -153,7 +155,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
 
     /**
      * A volatile load (load + LoadLoad barrier) of an element from a given offset.
-     * 
+     *
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @return the element at the offset
      */
@@ -163,7 +165,7 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
 
     /**
      * A volatile load (load + LoadLoad barrier) of an element from a given offset.
-     * 
+     *
      * @param buffer this.buffer
      * @param offset computed via {@link ConcurrentCircularArrayQueue#calcElementOffset(long)}
      * @return the element at the offset
@@ -180,7 +182,6 @@ public abstract class ConcurrentCircularArrayQueue<E> extends ConcurrentCircular
     @Override
     public void clear() {
         // we have to test isEmpty because of the weaker poll() guarantee
-        while (poll() != null || !isEmpty())
-            ;
+        while (poll() != null || !isEmpty()) { } // NOPMD
     }
 }

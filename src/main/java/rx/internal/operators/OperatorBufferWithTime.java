@@ -15,16 +15,13 @@
  */
 package rx.internal.operators;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
+
+import rx.*;
 import rx.Observable;
 import rx.Observable.Operator;
-import rx.Scheduler;
 import rx.Scheduler.Worker;
-import rx.Subscriber;
 import rx.exceptions.Exceptions;
 import rx.functions.Action0;
 import rx.observers.SerializedSubscriber;
@@ -40,7 +37,7 @@ import rx.observers.SerializedSubscriber;
  * Note that this operation can produce <strong>non-connected, or overlapping chunks</strong> depending
  * on the input parameters.
  * </p>
- * 
+ *
  * @param <T> the buffered value type
  */
 public final class OperatorBufferWithTime<T> implements Operator<List<T>, T> {
@@ -74,23 +71,23 @@ public final class OperatorBufferWithTime<T> implements Operator<List<T>, T> {
     public Subscriber<? super T> call(final Subscriber<? super List<T>> child) {
         final Worker inner = scheduler.createWorker();
         SerializedSubscriber<List<T>> serialized = new SerializedSubscriber<List<T>>(child);
-        
+
         if (timespan == timeshift) {
-            ExactSubscriber bsub = new ExactSubscriber(serialized, inner);
-            bsub.add(inner);
-            child.add(bsub);
-            bsub.scheduleExact();
-            return bsub;
+            ExactSubscriber parent = new ExactSubscriber(serialized, inner);
+            parent.add(inner);
+            child.add(parent);
+            parent.scheduleExact();
+            return parent;
         }
-        
-        InexactSubscriber bsub = new InexactSubscriber(serialized, inner);
-        bsub.add(inner);
-        child.add(bsub);
-        bsub.startNewChunk();
-        bsub.scheduleChunk();
-        return bsub;
+
+        InexactSubscriber parent = new InexactSubscriber(serialized, inner);
+        parent.add(inner);
+        child.add(parent);
+        parent.startNewChunk();
+        parent.scheduleChunk();
+        return parent;
     }
-    /** Subscriber when the buffer chunking time and lenght differ. */
+    /** Subscriber when the buffer chunking time and length differ. */
     final class InexactSubscriber extends Subscriber<T> {
         final Subscriber<? super List<T>> child;
         final Worker inner;

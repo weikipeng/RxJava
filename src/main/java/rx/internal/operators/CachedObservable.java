@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,20 +29,24 @@ import rx.subscriptions.SerialSubscription;
  * @param <T> the source element type
  */
 public final class CachedObservable<T> extends Observable<T> {
+
     /** The cache and replay state. */
-    private CacheState<T> state;
+    private final CacheState<T> state;
 
     /**
      * Creates a cached Observable with a default capacity hint of 16.
+     * @param <T> the value type
      * @param source the source Observable to cache
      * @return the CachedObservable instance
      */
+    @SuppressWarnings("cast")
     public static <T> CachedObservable<T> from(Observable<? extends T> source) {
-        return from(source, 16);
+        return (CachedObservable<T>)from(source, 16);
     }
-    
+
     /**
      * Creates a cached Observable with the given capacity hint.
+     * @param <T> the value type
      * @param source the source Observable to cache
      * @param capacityHint the hint for the internal buffer size
      * @return the CachedObservable instance
@@ -55,12 +59,12 @@ public final class CachedObservable<T> extends Observable<T> {
         CachedSubscribe<T> onSubscribe = new CachedSubscribe<T>(state);
         return new CachedObservable<T>(onSubscribe, state);
     }
-    
+
     /**
      * Private constructor because state needs to be shared between the Observable body and
      * the onSubscribe function.
-     * @param onSubscribe
-     * @param state
+     * @param onSubscribe the shared OnSubscribe implementation
+     * @param state the cache state object
      */
     private CachedObservable(OnSubscribe<T> onSubscribe, CacheState<T> state) {
         super(onSubscribe);
@@ -74,23 +78,15 @@ public final class CachedObservable<T> extends Observable<T> {
     /* public */boolean isConnected() {
         return state.isConnected;
     }
-    
+
     /**
      * Returns true if there are observers subscribed to this observable.
-     * @return
+     * @return true if this CachedObservable has observers
      */
     /* public */ boolean hasObservers() {
         return state.producers.length != 0;
     }
-    
-    /**
-     * Returns the number of events currently cached.
-     * @return
-     */
-    /* public */ int cachedEventCount() {
-        return state.size();
-    }
-    
+
     /**
      * Contains the active child producers and the values to replay.
      *
@@ -105,27 +101,24 @@ public final class CachedObservable<T> extends Observable<T> {
         volatile ReplayProducer<?>[] producers;
         /** The default empty array of producers. */
         static final ReplayProducer<?>[] EMPTY = new ReplayProducer<?>[0];
-        
-        final NotificationLite<T> nl;
-        
+
         /** Set to true after connection. */
         volatile boolean isConnected;
-        /** 
+        /**
          * Indicates that the source has completed emitting values or the
          * Observable was forcefully terminated.
          */
         boolean sourceDone;
-        
+
         public CacheState(Observable<? extends T> source, int capacityHint) {
             super(capacityHint);
             this.source = source;
             this.producers = EMPTY;
-            this.nl = NotificationLite.instance();
             this.connection = new SerialSubscription();
         }
         /**
          * Adds a ReplayProducer to the producers array atomically.
-         * @param p
+         * @param p the downstream consumer's associated Producer instance
          */
         public void addProducer(ReplayProducer<T> p) {
             // guarding by connection to save on allocating another object
@@ -141,7 +134,7 @@ public final class CachedObservable<T> extends Observable<T> {
         }
         /**
          * Removes the ReplayProducer (if present) from the producers array atomically.
-         * @param p
+         * @param p the downstream consumer's associated Producer instance
          */
         public void removeProducer(ReplayProducer<T> p) {
             synchronized (connection) {
@@ -193,7 +186,7 @@ public final class CachedObservable<T> extends Observable<T> {
         @Override
         public void onNext(T t) {
             if (!sourceDone) {
-                Object o = nl.next(t);
+                Object o = NotificationLite.next(t);
                 add(o);
                 dispatch();
             }
@@ -202,7 +195,7 @@ public final class CachedObservable<T> extends Observable<T> {
         public void onError(Throwable e) {
             if (!sourceDone) {
                 sourceDone = true;
-                Object o = nl.error(e);
+                Object o = NotificationLite.error(e);
                 add(o);
                 connection.unsubscribe();
                 dispatch();
@@ -212,7 +205,7 @@ public final class CachedObservable<T> extends Observable<T> {
         public void onCompleted() {
             if (!sourceDone) {
                 sourceDone = true;
-                Object o = nl.completed();
+                Object o = NotificationLite.completed();
                 add(o);
                 connection.unsubscribe();
                 dispatch();
@@ -228,7 +221,7 @@ public final class CachedObservable<T> extends Observable<T> {
             }
         }
     }
-    
+
     /**
      * Manages the subscription of child subscribers by setting up a replay producer and
      * performs auto-connection of the very first subscription.
@@ -246,7 +239,7 @@ public final class CachedObservable<T> extends Observable<T> {
             // we can connect first because we replay everything anyway
             ReplayProducer<T> rp = new ReplayProducer<T>(t, state);
             state.addProducer(rp);
-            
+
             t.add(rp);
             t.setProducer(rp);
 
@@ -254,11 +247,11 @@ public final class CachedObservable<T> extends Observable<T> {
             if (!get() && compareAndSet(false, true)) {
                 state.connect();
             }
-            
+
             // no need to call rp.replay() here because the very first request will trigger it anyway
         }
     }
-    
+
     /**
      * Keeps track of the current request amount and the replay position for a child Subscriber.
      *
@@ -271,14 +264,14 @@ public final class CachedObservable<T> extends Observable<T> {
         final Subscriber<? super T> child;
         /** The cache state object. */
         final CacheState<T> state;
-        
-        /** 
+
+        /**
          * Contains the reference to the buffer segment in replay.
          * Accessed after reading state.size() and when emitting == true.
          */
         Object[] currentBuffer;
-        /** 
-         * Contains the index into the currentBuffer where the next value is expected. 
+        /**
+         * Contains the index into the currentBuffer where the next value is expected.
          * Accessed after reading state.size() and when emitting == true.
          */
         int currentIndexInBuffer;
@@ -291,7 +284,7 @@ public final class CachedObservable<T> extends Observable<T> {
         boolean emitting;
         /** Indicates there were some state changes/replay attempts; guarded by this. */
         boolean missed;
-        
+
         public ReplayProducer(Subscriber<? super T> child, CacheState<T> state) {
             this.child = child;
             this.state = state;
@@ -315,13 +308,13 @@ public final class CachedObservable<T> extends Observable<T> {
         }
         /**
          * Updates the request count to reflect values have been produced.
-         * @param n
-         * @return
+         * @param n the produced item count, positive, not validated
+         * @return the latest request amount after subtracting n
          */
         public long produced(long n) {
             return addAndGet(-n);
         }
-        
+
         @Override
         public boolean isUnsubscribed() {
             return get() < 0;
@@ -336,7 +329,7 @@ public final class CachedObservable<T> extends Observable<T> {
                 }
             }
         }
-        
+
         /**
          * Continue replaying available values if there are requests for them.
          */
@@ -351,24 +344,23 @@ public final class CachedObservable<T> extends Observable<T> {
             }
             boolean skipFinal = false;
             try {
-                final NotificationLite<T> nl = state.nl;
                 final Subscriber<? super T> child = this.child;
-                
+
                 for (;;) {
-                    
+
                     long r = get();
-                    
+
                     if (r < 0L) {
                         skipFinal = true;
                         return;
                     }
-                        
+
                     // read the size, if it is non-zero, we can safely read the head and
                     // read values up to the given absolute index
                     int s = state.size();
                     if (s != 0) {
                         Object[] b = currentBuffer;
-                        
+
                         // latch onto the very first buffer now that it is available.
                         if (b == null) {
                             b = state.head();
@@ -380,14 +372,14 @@ public final class CachedObservable<T> extends Observable<T> {
                         // eagerly emit any terminal event
                         if (r == 0) {
                             Object o = b[k];
-                            if (nl.isCompleted(o)) {
+                            if (NotificationLite.isCompleted(o)) {
                                 child.onCompleted();
                                 skipFinal = true;
                                 unsubscribe();
                                 return;
                             } else
-                            if (nl.isError(o)) {
-                                child.onError(nl.getError(o));
+                            if (NotificationLite.isError(o)) {
+                                child.onError(NotificationLite.getError(o));
                                 skipFinal = true;
                                 unsubscribe();
                                 return;
@@ -395,7 +387,7 @@ public final class CachedObservable<T> extends Observable<T> {
                         } else
                         if (r > 0) {
                             int valuesProduced = 0;
-                            
+
                             while (j < s && r > 0) {
                                 if (child.isUnsubscribed()) {
                                     skipFinal = true;
@@ -406,9 +398,9 @@ public final class CachedObservable<T> extends Observable<T> {
                                     k = 0;
                                 }
                                 Object o = b[k];
-                                
+
                                 try {
-                                    if (nl.accept(child, o)) {
+                                    if (NotificationLite.accept(child, o)) {
                                         skipFinal = true;
                                         unsubscribe();
                                         return;
@@ -417,30 +409,30 @@ public final class CachedObservable<T> extends Observable<T> {
                                     Exceptions.throwIfFatal(err);
                                     skipFinal = true;
                                     unsubscribe();
-                                    if (!nl.isError(o) && !nl.isCompleted(o)) {
-                                        child.onError(OnErrorThrowable.addValueAsLastCause(err, nl.getValue(o)));
+                                    if (!NotificationLite.isError(o) && !NotificationLite.isCompleted(o)) {
+                                        child.onError(OnErrorThrowable.addValueAsLastCause(err, NotificationLite.getValue(o)));
                                     }
                                     return;
                                 }
-                                
+
                                 k++;
                                 j++;
                                 r--;
                                 valuesProduced++;
                             }
-                            
+
                             if (child.isUnsubscribed()) {
                                 skipFinal = true;
                                 return;
                             }
-                            
+
                             index = j;
                             currentIndexInBuffer = k;
                             currentBuffer = b;
                             produced(valuesProduced);
                         }
                     }
-                    
+
                     synchronized (this) {
                         if (!missed) {
                             emitting = false;

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,11 @@
  */
 package rx.internal.operators;
 
-import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.AtomicLong;
 
-import rx.Notification;
+import rx.*;
 import rx.Observable.Operator;
-import rx.Producer;
-import rx.Subscriber;
-import rx.plugins.RxJavaPlugins;
+import rx.plugins.RxJavaHooks;
 
 /**
  * Turns all of the notifications from an Observable into {@code onNext} emissions, and marks
@@ -30,16 +28,18 @@ import rx.plugins.RxJavaPlugins;
  * <img width="640" src="https://github.com/ReactiveX/RxJava/wiki/images/rx-operators/materialize.png" alt="">
  * <p>
  * See <a href="http://msdn.microsoft.com/en-us/library/hh229453.aspx">here</a> for the Microsoft Rx equivalent.
+ * @param <T> the value type
  */
 public final class OperatorMaterialize<T> implements Operator<Notification<T>, T> {
 
     /** Lazy initialization via inner-class holder. */
-    private static final class Holder {
+    static final class Holder {
         /** A singleton instance. */
         static final OperatorMaterialize<Object> INSTANCE = new OperatorMaterialize<Object>();
     }
 
     /**
+     * @param <T> the value type
      * @return a singleton instance of this stateless operator.
      */
     @SuppressWarnings("unchecked")
@@ -47,7 +47,8 @@ public final class OperatorMaterialize<T> implements Operator<Notification<T>, T
         return (OperatorMaterialize<T>) Holder.INSTANCE;
     }
 
-    private OperatorMaterialize() {
+    OperatorMaterialize() {
+        // singleton instances
     }
 
     @Override
@@ -65,21 +66,18 @@ public final class OperatorMaterialize<T> implements Operator<Notification<T>, T
         return parent;
     }
 
-    private static class ParentSubscriber<T> extends Subscriber<T> {
+    static class ParentSubscriber<T> extends Subscriber<T> {
 
         private final Subscriber<? super Notification<T>> child;
 
         private volatile Notification<T> terminalNotification;
-        
-        // guarded by this
-        private boolean busy = false;
-        // guarded by this
-        private boolean missed = false;
 
-        private volatile long requested;
-        @SuppressWarnings("rawtypes")
-        private static final AtomicLongFieldUpdater<ParentSubscriber> REQUESTED = AtomicLongFieldUpdater
-                .newUpdater(ParentSubscriber.class, "requested");
+        // guarded by this
+        private boolean busy;
+        // guarded by this
+        private boolean missed;
+
+        private final AtomicLong requested = new AtomicLong();
 
         ParentSubscriber(Subscriber<? super Notification<T>> child) {
             this.child = child;
@@ -91,7 +89,7 @@ public final class OperatorMaterialize<T> implements Operator<Notification<T>, T
         }
 
         void requestMore(long n) {
-            BackpressureUtils.getAndAddRequest(REQUESTED, this, n);
+            BackpressureUtils.getAndAddRequest(requested, n);
             request(n);
             drain();
         }
@@ -105,7 +103,7 @@ public final class OperatorMaterialize<T> implements Operator<Notification<T>, T
         @Override
         public void onError(Throwable e) {
             terminalNotification = Notification.createOnError(e);
-            RxJavaPlugins.getInstance().getErrorHandler().handleError(e);
+            RxJavaHooks.onError(e);
             drain();
         }
 
@@ -117,12 +115,13 @@ public final class OperatorMaterialize<T> implements Operator<Notification<T>, T
 
         private void decrementRequested() {
             // atomically decrement requested
+            AtomicLong localRequested = this.requested;
             while (true) {
-                long r = requested;
+                long r = localRequested.get();
                 if (r == Long.MAX_VALUE) {
                     // don't decrement if unlimited requested
                     return;
-                } else if (REQUESTED.compareAndSet(this, r, r - 1)) {
+                } else if (localRequested.compareAndSet(r, r - 1)) {
                     return;
                 }
             }
@@ -134,14 +133,16 @@ public final class OperatorMaterialize<T> implements Operator<Notification<T>, T
                     // set flag to force extra loop if drain loop running
                     missed = true;
                     return;
-                } 
+                }
+                busy = true;
             }
             // drain loop
+            final AtomicLong localRequested = this.requested;
             while (!child.isUnsubscribed()) {
                 Notification<T> tn;
                 tn = terminalNotification;
                 if (tn != null) {
-                    if (requested > 0) {
+                    if (localRequested.get() > 0) {
                         // allow tn to be GC'd after the onNext call
                         terminalNotification = null;
                         // emit the terminal notification

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@ package rx.schedulers;
 
 /**
  * Composite class that takes a value and a timestamp and wraps them.
+ * @param <T> the value type held along with the timestamp
  */
 public final class Timestamped<T> {
     private final long timestampMillis;
@@ -29,7 +30,7 @@ public final class Timestamped<T> {
 
     /**
      * Returns the timestamp, expressed in milliseconds.
-     * 
+     *
      * @return timestamp in milliseconds
      */
     public long getTimestampMillis() {
@@ -38,7 +39,7 @@ public final class Timestamped<T> {
 
     /**
      * Returns the value embedded in the {@code Timestamped} object.
-     * 
+     *
      * @return the value
      */
     public T getValue() {
@@ -57,22 +58,12 @@ public final class Timestamped<T> {
             return false;
         }
         Timestamped<?> other = (Timestamped<?>) obj;
-        if (timestampMillis != other.timestampMillis) {
-            return false;
-        }
-        if (value == null) {
-            if (other.value != null) {
-                return false;
-            }
-        } else if (!value.equals(other.value)) {
-            return false;
-        }
-        return true;
+        return timestampMillis == other.timestampMillis && ((value == other.value) || (value != null && value.equals(other.value)));
     }
 
     @Override
     public int hashCode() {
-        final int prime = 31;
+        int prime = 31;
         int result = 1;
         result = prime * result + (int) (timestampMillis ^ (timestampMillis >>> 32));
         result = prime * result + ((value == null) ? 0 : value.hashCode());

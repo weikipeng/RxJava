@@ -10,7 +10,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * Original License: https://github.com/JCTools/JCTools/blob/master/LICENSE
  * Original location: https://github.com/JCTools/JCTools/blob/master/jctools-core/src/main/java/org/jctools/queues/atomic/BaseLinkedQueue.java
  */
@@ -20,6 +20,7 @@ import static rx.internal.util.unsafe.UnsafeAccess.UNSAFE;
 
 import java.util.*;
 
+import rx.internal.util.SuppressAnimalSniffer;
 import rx.internal.util.atomic.LinkedQueueNode;
 
 abstract class BaseLinkedQueuePad0<E> extends AbstractQueue<E> {
@@ -27,6 +28,7 @@ abstract class BaseLinkedQueuePad0<E> extends AbstractQueue<E> {
     long p30, p31, p32, p33, p34, p35, p36, p37;
 }
 
+@SuppressAnimalSniffer
 abstract class BaseLinkedQueueProducerNodeRef<E> extends BaseLinkedQueuePad0<E> {
     protected final static long P_NODE_OFFSET = UnsafeAccess.addressOf(BaseLinkedQueueProducerNodeRef.class, "producerNode");
 
@@ -34,12 +36,12 @@ abstract class BaseLinkedQueueProducerNodeRef<E> extends BaseLinkedQueuePad0<E> 
     protected final void spProducerNode(LinkedQueueNode<E> node) {
         producerNode = node;
     }
-    
+
     @SuppressWarnings("unchecked")
     protected final LinkedQueueNode<E> lvProducerNode() {
         return (LinkedQueueNode<E>) UNSAFE.getObjectVolatile(this, P_NODE_OFFSET);
     }
-    
+
     protected final LinkedQueueNode<E> lpProducerNode() {
         return producerNode;
     }
@@ -50,18 +52,19 @@ abstract class BaseLinkedQueuePad1<E> extends BaseLinkedQueueProducerNodeRef<E> 
     long p30, p31, p32, p33, p34, p35, p36, p37;
 }
 
+@SuppressAnimalSniffer
 abstract class BaseLinkedQueueConsumerNodeRef<E> extends BaseLinkedQueuePad1<E> {
     protected final static long C_NODE_OFFSET = UnsafeAccess.addressOf(BaseLinkedQueueConsumerNodeRef.class, "consumerNode");
     protected LinkedQueueNode<E> consumerNode;
     protected final void spConsumerNode(LinkedQueueNode<E> node) {
         consumerNode = node;
     }
-    
+
     @SuppressWarnings("unchecked")
     protected final LinkedQueueNode<E> lvConsumerNode() {
         return (LinkedQueueNode<E>) UNSAFE.getObjectVolatile(this, C_NODE_OFFSET);
     }
-    
+
     protected final LinkedQueueNode<E> lpConsumerNode() {
         return consumerNode;
     }
@@ -69,11 +72,12 @@ abstract class BaseLinkedQueueConsumerNodeRef<E> extends BaseLinkedQueuePad1<E> 
 
 /**
  * A base data structure for concurrent linked queues.
- * 
+ *
  * @author nitsanw
- * 
- * @param <E>
+ *
+ * @param <E> the element type
  */
+@SuppressAnimalSniffer
 abstract class BaseLinkedQueue<E> extends BaseLinkedQueueConsumerNodeRef<E> {
     long p00, p01, p02, p03, p04, p05, p06, p07;
     long p30, p31, p32, p33, p34, p35, p36, p37;
@@ -89,7 +93,7 @@ abstract class BaseLinkedQueue<E> extends BaseLinkedQueueConsumerNodeRef<E> {
      * <p>
      * IMPLEMENTATION NOTES:<br>
      * This is an O(n) operation as we run through all the nodes and count them.<br>
-     * 
+     *
      * @see java.util.Queue#size()
      */
     @Override
@@ -102,13 +106,13 @@ abstract class BaseLinkedQueue<E> extends BaseLinkedQueueConsumerNodeRef<E> {
         // must chase the nodes all the way to the producer node, but there's no need to chase a moving target.
         while (chaserNode != producerNode && size < Integer.MAX_VALUE) {
             LinkedQueueNode<E> next;
-            while((next = chaserNode.lvNext()) == null);
+            while ((next = chaserNode.lvNext()) == null) { } // NOPMD
             chaserNode = next;
             size++;
         }
         return size;
     }
-    
+
     /**
      * {@inheritDoc} <br>
      * <p>
@@ -116,7 +120,7 @@ abstract class BaseLinkedQueue<E> extends BaseLinkedQueueConsumerNodeRef<E> {
      * Queue is empty when producerNode is the same as consumerNode. An alternative implementation would be to observe
      * the producerNode.value is null, which also means an empty queue because only the consumerNode.value is allowed to
      * be null.
-     * 
+     *
      * @see MessagePassingQueue#isEmpty()
      */
     @Override

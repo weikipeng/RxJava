@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,33 +18,21 @@ package rx.observers;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-import java.lang.reflect.*;
 import java.util.concurrent.atomic.*;
 
 import org.junit.Test;
 
+import rx.*;
 import rx.exceptions.*;
 import rx.functions.*;
+import rx.subscriptions.Subscriptions;
 
 public class SubscribersTest {
     @Test
-    public void testNotInstantiable() {
-        try {
-            Constructor<?> c = Subscribers.class.getDeclaredConstructor();
-            c.setAccessible(true);
-            Object instance = c.newInstance();
-            fail("Could instantiate Actions! " + instance);
-        } catch (NoSuchMethodException ex) {
-            ex.printStackTrace();
-        } catch (InvocationTargetException ex) {
-            ex.printStackTrace();
-        } catch (InstantiationException ex) {
-            ex.printStackTrace();
-        } catch (IllegalAccessException ex) {
-            ex.printStackTrace();
-        }
+    public void constructorShouldBePrivate() {
+        TestUtil.checkUtilityClass(Subscribers.class);
     }
-    
+
     @Test
     public void testEmptyOnErrorNotImplemented() {
         try {
@@ -80,7 +68,7 @@ public class SubscribersTest {
     public void testCreate3Null() {
         Subscribers.create(Actions.empty(), null);
     }
-    
+
     @Test(expected = IllegalArgumentException.class)
     public void testCreate4Null() {
         Action1<Throwable> throwAction = Actions.empty();
@@ -95,7 +83,7 @@ public class SubscribersTest {
         Action1<Throwable> throwAction = Actions.empty();
         Subscribers.create(Actions.empty(), throwAction, null);
     }
-    
+
     @Test
     public void testCreate1Value() {
         final AtomicInteger value = new AtomicInteger();
@@ -106,7 +94,7 @@ public class SubscribersTest {
             }
         };
         Subscribers.create(action).onNext(1);
-        
+
         assertEquals(1, value.get());
     }
     @Test
@@ -120,10 +108,10 @@ public class SubscribersTest {
         };
         Action1<Throwable> throwAction = Actions.empty();
         Subscribers.create(action, throwAction).onNext(1);
-        
+
         assertEquals(1, value.get());
     }
-    
+
     @Test
     public void testCreate3Value() {
         final AtomicInteger value = new AtomicInteger();
@@ -135,10 +123,10 @@ public class SubscribersTest {
         };
         Action1<Throwable> throwAction = Actions.empty();
         Subscribers.create(action, throwAction, Actions.empty()).onNext(1);
-        
+
         assertEquals(1, value.get());
     }
-    
+
     @Test
     public void testError2() {
         final AtomicReference<Throwable> value = new AtomicReference<Throwable>();
@@ -150,10 +138,10 @@ public class SubscribersTest {
         };
         TestException exception = new TestException();
         Subscribers.create(Actions.empty(), action).onError(exception);
-        
+
         assertEquals(exception, value.get());
     }
-    
+
     @Test
     public void testError3() {
         final AtomicReference<Throwable> value = new AtomicReference<Throwable>();
@@ -165,14 +153,14 @@ public class SubscribersTest {
         };
         TestException exception = new TestException();
         Subscribers.create(Actions.empty(), action, Actions.empty()).onError(exception);
-        
+
         assertEquals(exception, value.get());
     }
-    
+
     @Test
     public void testCompleted() {
         Action0 action = mock(Action0.class);
-        
+
         Action1<Throwable> throwAction = Actions.empty();
         Subscribers.create(Actions.empty(), throwAction, action).onCompleted();
 
@@ -181,8 +169,30 @@ public class SubscribersTest {
     @Test
     public void testEmptyCompleted() {
         Subscribers.create(Actions.empty()).onCompleted();
-        
+
         Action1<Throwable> throwAction = Actions.empty();
         Subscribers.create(Actions.empty(), throwAction).onCompleted();
+    }
+
+    @Test
+    public void shareSubscriptionButNullSubscriber() {
+        Subscriber<Integer> s = new Subscriber<Integer>(null, true) {
+            @Override
+            public void onNext(Integer t) {
+
+            }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onCompleted() {
+
+            }
+        };
+
+        s.add(Subscriptions.empty());
     }
 }

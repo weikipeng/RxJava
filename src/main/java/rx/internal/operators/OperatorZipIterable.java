@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,8 +18,8 @@ package rx.internal.operators;
 import java.util.Iterator;
 
 import rx.Observable.Operator;
-import rx.exceptions.Exceptions;
 import rx.Subscriber;
+import rx.exceptions.Exceptions;
 import rx.functions.Func2;
 import rx.observers.Subscribers;
 
@@ -46,23 +46,31 @@ public final class OperatorZipIterable<T1, T2, R> implements Operator<R, T1> {
             return Subscribers.empty();
         }
         return new Subscriber<T1>(subscriber) {
-            boolean once;
+            boolean done;
             @Override
             public void onCompleted() {
-                if (once) {
+                if (done) {
                     return;
                 }
-                once = true;
+                done = true;
                 subscriber.onCompleted();
             }
 
             @Override
             public void onError(Throwable e) {
+                if (done) {
+                    Exceptions.throwIfFatal(e);
+                    return;
+                }
+                done = true;
                 subscriber.onError(e);
             }
 
             @Override
             public void onNext(T1 t) {
+                if (done) {
+                    return;
+                }
                 try {
                     subscriber.onNext(zipFunction.call(t, iterator.next()));
                     if (!iterator.hasNext()) {

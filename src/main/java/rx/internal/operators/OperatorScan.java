@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,10 +16,11 @@
 package rx.internal.operators;
 
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicLong;
 
 import rx.*;
 import rx.Observable.Operator;
-import rx.exceptions.*;
+import rx.exceptions.Exceptions;
 import rx.functions.*;
 import rx.internal.util.atomic.SpscLinkedAtomicQueue;
 import rx.internal.util.unsafe.*;
@@ -36,18 +37,21 @@ import rx.internal.util.unsafe.*;
  * <p>
  * Note that when you pass a seed to {@code scan} the resulting Observable will emit that seed as its
  * first emitted item.
+ *
+ * @param <R> the aggregate and output type
+ * @param <T> the input value type
  */
 public final class OperatorScan<R, T> implements Operator<R, T> {
 
     private final Func0<R> initialValueFactory;
-    private final Func2<R, ? super T, R> accumulator;
+    final Func2<R, ? super T, R> accumulator;
     // sentinel if we don't receive an initial value
     private static final Object NO_INITIAL_VALUE = new Object();
 
     /**
      * Applies an accumulator function over an observable sequence and returns each intermediate result with the
      * specified source and accumulator.
-     * 
+     *
      * @param initialValue
      *            the initial (seed) accumulator value
      * @param accumulator
@@ -62,10 +66,10 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
             public R call() {
                 return initialValue;
             }
-            
+
         }, accumulator);
     }
-    
+
     public OperatorScan(Func0<R> initialValueFactory, Func2<R, ? super T, R> accumulator) {
         this.initialValueFactory = initialValueFactory;
         this.accumulator = accumulator;
@@ -74,7 +78,7 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
     /**
      * Applies an accumulator function over an observable sequence and returns each intermediate result with the
      * specified source and accumulator.
-     * 
+     *
      * @param accumulator
      *            an accumulator function to be invoked on each element from the sequence
      * @see <a href="http://msdn.microsoft.com/en-us/library/hh211665.aspx">Observable.Scan(TSource) Method (IObservable(TSource), Func(TSource, TSource, TSource))</a>
@@ -87,7 +91,7 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
     @Override
     public Subscriber<? super T> call(final Subscriber<? super R> child) {
         final R initialValue = initialValueFactory.call();
-        
+
         if (initialValue == NO_INITIAL_VALUE) {
             return new Subscriber<T>(child) {
                 boolean once;
@@ -104,8 +108,7 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
                         try {
                             v = accumulator.call(v, t);
                         } catch (Throwable e) {
-                            Exceptions.throwIfFatal(e);
-                            child.onError(OnErrorThrowable.addValueAsLastCause(e, t));
+                            Exceptions.throwOrReport(e, child, t);
                             return;
                         }
                     }
@@ -122,9 +125,9 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
                 }
             };
         }
-        
+
         final InitialProducer<R> ip = new InitialProducer<R>(initialValue, child);
-        
+
         Subscriber<T> parent = new Subscriber<T>() {
             private R value = initialValue;
 
@@ -134,8 +137,7 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
                 try {
                     v = accumulator.call(v, currentValue);
                 } catch (Throwable e) {
-                    Exceptions.throwIfFatal(e);
-                    onError(OnErrorThrowable.addValueAsLastCause(e, currentValue));
+                    Exceptions.throwOrReport(e, this, currentValue);
                     return;
                 }
                 value = v;
@@ -151,37 +153,35 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
             public void onCompleted() {
                 ip.onCompleted();
             }
-            
+
             @Override
             public void setProducer(final Producer producer) {
                 ip.setProducer(producer);
             }
         };
-        
+
         child.add(parent);
         child.setProducer(ip);
         return parent;
     }
-    
+
     static final class InitialProducer<R> implements Producer, Observer<R> {
         final Subscriber<? super R> child;
         final Queue<Object> queue;
-        
+
         boolean emitting;
         /** Missed a terminal event. */
         boolean missed;
         /** Missed a request. */
         long missedRequested;
-        /** Missed a producer. */
-        Producer missedProducer;
         /** The current requested amount. */
-        long requested;
+        final AtomicLong requested;
         /** The current producer. */
-        Producer producer;
-        
+        volatile Producer producer;
+
         volatile boolean done;
         Throwable error;
-        
+
         public InitialProducer(R initialValue, Subscriber<? super R> child) {
             this.child = child;
             Queue<Object> q;
@@ -192,50 +192,16 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
                 q = new SpscLinkedAtomicQueue<Object>();  // new SpscUnboundedAtomicArrayQueue<R>(8);
             }
             this.queue = q;
-            q.offer(initialValue);
+            q.offer(NotificationLite.next(initialValue));
+            this.requested = new AtomicLong();
         }
-        
-        @Override
-        public void request(long n) {
-            if (n < 0L) {
-                throw new IllegalArgumentException("n >= required but it was " + n);
-            } else
-            if (n != 0L) {
-                synchronized (this) {
-                    if (emitting) {
-                        long mr = missedRequested;
-                        long mu = mr + n;
-                        if (mu < 0L) {
-                            mu = Long.MAX_VALUE;
-                        }
-                        missedRequested = mu;
-                        return;
-                    }
-                    emitting = true;
-                }
-                
-                long r = requested;
-                long u = r + n;
-                if (u < 0L) {
-                    u = Long.MAX_VALUE;
-                }
-                requested = u;
-                
-                Producer p = producer;
-                if (p != null) {
-                    p.request(n);
-                }
-                
-                emitLoop();
-            }
-        }
-        
+
         @Override
         public void onNext(R t) {
-            queue.offer(NotificationLite.instance().next(t));
+            queue.offer(NotificationLite.next(t));
             emit();
         }
-        
+
         boolean checkTerminated(boolean d, boolean empty, Subscriber<? super R> child) {
             if (child.isUnsubscribed()) {
                 return true;
@@ -253,39 +219,71 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
             }
             return false;
         }
-        
+
         @Override
         public void onError(Throwable e) {
             error = e;
             done = true;
             emit();
         }
-        
+
         @Override
         public void onCompleted() {
             done = true;
             emit();
         }
-        
+
+        @Override
+        public void request(long n) {
+            if (n < 0L) {
+                throw new IllegalArgumentException("n >= required but it was " + n);
+            } else
+            if (n != 0L) {
+                BackpressureUtils.getAndAddRequest(requested, n);
+                Producer p = producer;
+                if (p == null) {
+                    // not synchronizing on this to avoid clash with emit()
+                    synchronized (requested) {
+                        p = producer;
+                        if (p == null) {
+                            long mr = missedRequested;
+                            missedRequested = BackpressureUtils.addCap(mr, n);
+                        }
+                    }
+                }
+                if (p != null) {
+                    p.request(n);
+                }
+                emit();
+            }
+        }
+
         public void setProducer(Producer p) {
             if (p == null) {
                 throw new NullPointerException();
             }
-            synchronized (this) {
-                if (emitting) {
-                    missedProducer = p;
-                    return;
+            long mr;
+            // not synchronizing on this to avoid clash with emit()
+            synchronized (requested) {
+                if (producer != null) {
+                    throw new IllegalStateException("Can't set more than one Producer!");
                 }
-                emitting = true;
+                mr = missedRequested;
+                // request one less because of the initial value, this happens once
+                // and is performed only if the request is not at MAX_VALUE already
+                if (mr != Long.MAX_VALUE) {
+                    mr -= 1;
+                }
+                missedRequested = 0L;
+                producer = p;
             }
-            producer = p;
-            long r = requested;
-            if (r != 0L) {
-                p.request(r);
+
+            if (mr > 0L) {
+                p.request(mr);
             }
-            emitLoop();
+            emit();
         }
-        
+
         void emit() {
             synchronized (this) {
                 if (emitting) {
@@ -296,20 +294,21 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
             }
             emitLoop();
         }
-        
+
         void emitLoop() {
             final Subscriber<? super R> child = this.child;
             final Queue<Object> queue = this.queue;
-            final NotificationLite<R> nl = NotificationLite.instance();
-            long r = requested;
+            AtomicLong requested = this.requested;
+
+            long r = requested.get();
             for (;;) {
-                boolean max = r == Long.MAX_VALUE;
                 boolean d = done;
                 boolean empty = queue.isEmpty();
                 if (checkTerminated(d, empty, child)) {
                     return;
                 }
-                while (r != 0L) {
+                long e = 0L;
+                while (e != r) {
                     d = done;
                     Object o = queue.poll();
                     empty = o == null;
@@ -319,55 +318,26 @@ public final class OperatorScan<R, T> implements Operator<R, T> {
                     if (empty) {
                         break;
                     }
-                    R v = nl.getValue(o);
+                    R v = NotificationLite.getValue(o);
                     try {
                         child.onNext(v);
-                    } catch (Throwable e) {
-                        Exceptions.throwIfFatal(e);
-                        child.onError(OnErrorThrowable.addValueAsLastCause(e, v));
+                    } catch (Throwable ex) {
+                        Exceptions.throwOrReport(ex, child, v);
                         return;
                     }
-                    if (!max) {
-                        r--;
-                    }
+                    e++;
                 }
-                if (!max) {
-                    requested = r;
+
+                if (e != 0 && r != Long.MAX_VALUE) {
+                    r = BackpressureUtils.produced(requested, e);
                 }
-                
-                Producer p;
-                long mr;
+
                 synchronized (this) {
-                    p = missedProducer;
-                    mr = missedRequested;
-                    if (!missed && p == null && mr == 0L) {
+                    if (!missed) {
                         emitting = false;
                         return;
                     }
                     missed = false;
-                    missedProducer = null;
-                    missedRequested = 0L;
-                }
-                
-                if (mr != 0L && !max) {
-                    long u = r + mr;
-                    if (u < 0L) {
-                        u = Long.MAX_VALUE;
-                    }
-                    requested = u;
-                    r = u;
-                }
-                
-                if (p != null) {
-                    producer = p;
-                    if (r != 0L) {
-                        p.request(r);
-                    }
-                } else {
-                    p = producer;
-                    if (p != null && mr != 0L) {
-                        p.request(mr);
-                    }
                 }
             }
         }

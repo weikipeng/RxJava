@@ -66,13 +66,13 @@ public class OperatorRetryWithPredicateTest {
     @Test
     public void testWithNothingToRetry() {
         Observable<Integer> source = Observable.range(0, 3);
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryTwice).subscribe(o);
-        
+
         inOrder.verify(o).onNext(0);
         inOrder.verify(o).onNext(1);
         inOrder.verify(o).onNext(2);
@@ -81,7 +81,7 @@ public class OperatorRetryWithPredicateTest {
     }
     @Test
     public void testRetryTwice() {
-        Observable<Integer> source = Observable.create(new OnSubscribe<Integer>() {
+        Observable<Integer> source = Observable.unsafeCreate(new OnSubscribe<Integer>() {
             int count;
             @Override
             public void call(Subscriber<? super Integer> t1) {
@@ -97,11 +97,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onCompleted();
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryTwice).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -112,11 +112,11 @@ public class OperatorRetryWithPredicateTest {
         inOrder.verify(o).onNext(3);
         inOrder.verify(o).onCompleted();
         verify(o, never()).onError(any(Throwable.class));
-        
+
     }
     @Test
     public void testRetryTwiceAndGiveUp() {
-        Observable<Integer> source = Observable.create(new OnSubscribe<Integer>() {
+        Observable<Integer> source = Observable.unsafeCreate(new OnSubscribe<Integer>() {
             @Override
             public void call(Subscriber<? super Integer> t1) {
                 t1.onNext(0);
@@ -124,11 +124,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onError(new TestException());
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryTwice).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -139,11 +139,11 @@ public class OperatorRetryWithPredicateTest {
         inOrder.verify(o).onNext(1);
         inOrder.verify(o).onError(any(TestException.class));
         verify(o, never()).onCompleted();
-        
+
     }
     @Test
     public void testRetryOnSpecificException() {
-        Observable<Integer> source = Observable.create(new OnSubscribe<Integer>() {
+        Observable<Integer> source = Observable.unsafeCreate(new OnSubscribe<Integer>() {
             int count;
             @Override
             public void call(Subscriber<? super Integer> t1) {
@@ -159,11 +159,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onCompleted();
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryOnTestException).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -179,7 +179,7 @@ public class OperatorRetryWithPredicateTest {
     public void testRetryOnSpecificExceptionAndNotOther() {
         final IOException ioe = new IOException();
         final TestException te = new TestException();
-        Observable<Integer> source = Observable.create(new OnSubscribe<Integer>() {
+        Observable<Integer> source = Observable.unsafeCreate(new OnSubscribe<Integer>() {
             int count;
             @Override
             public void call(Subscriber<? super Integer> t1) {
@@ -195,11 +195,11 @@ public class OperatorRetryWithPredicateTest {
                 t1.onError(te);
             }
         });
-        
+
         @SuppressWarnings("unchecked")
         Observer<Integer> o = mock(Observer.class);
         InOrder inOrder = inOrder(o);
-        
+
         source.retry(retryOnTestException).subscribe(o);
 
         inOrder.verify(o).onNext(0);
@@ -212,7 +212,7 @@ public class OperatorRetryWithPredicateTest {
         verify(o, never()).onError(ioe);
         verify(o, never()).onCompleted();
     }
-    
+
     @Test
     public void testUnsubscribeFromRetry() {
         PublishSubject<Integer> subject = PublishSubject.create();
@@ -228,7 +228,7 @@ public class OperatorRetryWithPredicateTest {
         subject.onNext(2);
         assertEquals(1, count.get());
     }
-    
+
     @Test(timeout = 10000)
     public void testUnsubscribeAfterError() {
 
@@ -238,7 +238,7 @@ public class OperatorRetryWithPredicateTest {
         // Observable that always fails after 100ms
         OperatorRetryTest.SlowObservable so = new OperatorRetryTest.SlowObservable(100, 0);
         Observable<Long> o = Observable
-                .create(so)
+                .unsafeCreate(so)
                 .retry(retry5);
 
         OperatorRetryTest.AsyncObserver<Long> async = new OperatorRetryTest.AsyncObserver<Long>(observer);
@@ -265,7 +265,7 @@ public class OperatorRetryWithPredicateTest {
         // Observable that sends every 100ms (timeout fails instead)
         OperatorRetryTest.SlowObservable so = new OperatorRetryTest.SlowObservable(100, 10);
         Observable<Long> o = Observable
-                .create(so)
+                .unsafeCreate(so)
                 .timeout(80, TimeUnit.MILLISECONDS)
                 .retry(retry5);
 
@@ -282,7 +282,7 @@ public class OperatorRetryWithPredicateTest {
 
         assertEquals("Start 6 threads, retry 5 then fail on 6", 6, so.efforts.get());
     }
-    
+
     @Test
     public void testIssue2826() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -315,12 +315,12 @@ public class OperatorRetryWithPredicateTest {
 
         assertEquals(1, value);
     }
-    
+
     @Test
     public void testIssue3008RetryWithPredicate() {
         final List<Long> list = new CopyOnWriteArrayList<Long>();
         final AtomicBoolean isFirst = new AtomicBoolean(true);
-        Observable.<Long> just(1L, 2L, 3L).map(new Func1<Long, Long>(){
+        Observable.<Long> just(1L, 2L, 3L).map(new Func1<Long, Long>() {
             @Override
             public Long call(Long x) {
                 System.out.println("map " + x);
@@ -343,12 +343,12 @@ public class OperatorRetryWithPredicateTest {
             }});
         assertEquals(Arrays.asList(1L,1L,2L,3L), list);
     }
-    
+
     @Test
     public void testIssue3008RetryInfinite() {
         final List<Long> list = new CopyOnWriteArrayList<Long>();
         final AtomicBoolean isFirst = new AtomicBoolean(true);
-        Observable.<Long> just(1L, 2L, 3L).map(new Func1<Long, Long>(){
+        Observable.<Long> just(1L, 2L, 3L).map(new Func1<Long, Long>() {
             @Override
             public Long call(Long x) {
                 System.out.println("map " + x);
@@ -370,7 +370,7 @@ public class OperatorRetryWithPredicateTest {
     @Test
     public void testBackpressure() {
         final List<Long> requests = new ArrayList<Long>();
-        
+
         Observable<Integer> source = Observable
                 .just(1)
                 .concatWith(Observable.<Integer>error(new TestException()))
@@ -380,7 +380,7 @@ public class OperatorRetryWithPredicateTest {
                         requests.add(t);
                     }
                 });
-        
+
         TestSubscriber<Integer> ts = TestSubscriber.create(3);
         source
         .retry(new Func2<Integer, Throwable, Boolean>() {
@@ -389,10 +389,10 @@ public class OperatorRetryWithPredicateTest {
                 return t1 < 3;
             }
         }).subscribe(ts);
-        
+
         assertEquals(Arrays.asList(3L, 2L, 1L), requests);
         ts.assertValues(1, 1, 1);
         ts.assertNotCompleted();
-        ts.assertNoErrors();
+        ts.assertError(TestException.class);
     }
 }

@@ -15,8 +15,8 @@
  */
 package rx.internal.schedulers;
 
-import java.lang.reflect.Method;
-import java.util.Iterator;
+import java.lang.reflect.*;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -30,11 +30,11 @@ import rx.subscriptions.*;
 import static rx.internal.util.PlatformDependent.ANDROID_API_VERSION_IS_NOT_ANDROID;
 
 /**
- * @warn class description missing
+ * Represents a Scheduler.Worker that runs on its own unique and single-threaded ScheduledExecutorService
+ * created via Executors.
  */
 public class NewThreadWorker extends Scheduler.Worker implements Subscription {
     private final ScheduledExecutorService executor;
-    private final RxJavaSchedulersHook schedulersHook;
     volatile boolean isUnsubscribed;
     /** The purge frequency in milliseconds. */
     private static final String FREQUENCY_KEY = "rx.scheduler.jdk6.purge-frequency-millis";
@@ -46,6 +46,17 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
     public static final int PURGE_FREQUENCY;
     private static final ConcurrentHashMap<ScheduledThreadPoolExecutor, ScheduledThreadPoolExecutor> EXECUTORS;
     private static final AtomicReference<ScheduledExecutorService> PURGE;
+    /**
+     * Improves performance of {@link #tryEnableCancelPolicy(ScheduledExecutorService)}.
+     * Also, it works even for inheritance: {@link Method} of base class can be invoked on the instance of child class.
+     */
+    private static volatile Object cachedSetRemoveOnCancelPolicyMethod;
+
+    /**
+     * Possible value of {@link #cachedSetRemoveOnCancelPolicyMethod} which means that cancel policy is not supported.
+     */
+    private static final Object SET_REMOVE_ON_CANCEL_POLICY_METHOD_NOT_SUPPORTED = new Object();
+
     static {
         EXECUTORS = new ConcurrentHashMap<ScheduledThreadPoolExecutor, ScheduledThreadPoolExecutor>();
         PURGE = new AtomicReference<ScheduledExecutorService>();
@@ -61,10 +72,10 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
         SHOULD_TRY_ENABLE_CANCEL_POLICY = !purgeForce
                 && (androidApiVersion == ANDROID_API_VERSION_IS_NOT_ANDROID || androidApiVersion >= 21);
     }
-    /** 
-     * Registers the given executor service and starts the purge thread if not already started. 
+    /**
+     * Registers the given executor service and starts the purge thread if not already started.
      * <p>{@code public} visibility reason: called from other package(s) within RxJava
-     * @param service a scheduled thread pool executor instance 
+     * @param service a scheduled thread pool executor instance
      */
     public static void registerExecutor(ScheduledThreadPoolExecutor service) {
         do {
@@ -80,17 +91,19 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
                         purgeExecutors();
                     }
                 }, PURGE_FREQUENCY, PURGE_FREQUENCY, TimeUnit.MILLISECONDS);
-                
+
                 break;
+            } else {
+                exec.shutdownNow();
             }
         } while (true);
-        
+
         EXECUTORS.putIfAbsent(service, service);
     }
-    /** 
-     * Deregisters the executor service. 
+    /**
+     * Deregisters the executor service.
      * <p>{@code public} visibility reason: called from other package(s) within RxJava
-     * @param service a scheduled thread pool executor instance 
+     * @param service a scheduled thread pool executor instance
      */
     public static void deregisterExecutor(ScheduledExecutorService service) {
         EXECUTORS.remove(service);
@@ -99,7 +112,10 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
     /** Purges each registered executor and eagerly evicts shutdown executors. */
     static void purgeExecutors() {
         try {
-            Iterator<ScheduledThreadPoolExecutor> it = EXECUTORS.keySet().iterator();
+            // This prevents map.keySet to compile to a Java 8+ KeySetView return type
+            // and cause NoSuchMethodError on Java 6-7 runtimes.
+            Map<ScheduledThreadPoolExecutor, ScheduledThreadPoolExecutor> map = EXECUTORS;
+            Iterator<ScheduledThreadPoolExecutor> it = map.keySet().iterator();
             while (it.hasNext()) {
                 ScheduledThreadPoolExecutor exec = it.next();
                 if (!exec.isShutdown()) {
@@ -110,34 +126,23 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
             }
         } catch (Throwable t) {
             Exceptions.throwIfFatal(t);
-            RxJavaPlugins.getInstance().getErrorHandler().handleError(t);
+            RxJavaHooks.onError(t);
         }
     }
-
-    /**
-     * Improves performance of {@link #tryEnableCancelPolicy(ScheduledExecutorService)}.
-     * Also, it works even for inheritance: {@link Method} of base class can be invoked on the instance of child class.
-     */
-    private static volatile Object cachedSetRemoveOnCancelPolicyMethod;
-
-    /**
-     * Possible value of {@link #cachedSetRemoveOnCancelPolicyMethod} which means that cancel policy is not supported.
-     */
-     private static final Object SET_REMOVE_ON_CANCEL_POLICY_METHOD_NOT_SUPPORTED = new Object();
 
     /**
      * Tries to enable the Java 7+ setRemoveOnCancelPolicy.
      * <p>{@code public} visibility reason: called from other package(s) within RxJava.
      * If the method returns false, the {@link #registerExecutor(ScheduledThreadPoolExecutor)} may
      * be called to enable the backup option of purging the executors.
-     * @param executor the executor to call setRemoveOnCaneclPolicy if available.
-     * @return true if the policy was successfully enabled 
+     * @param executor the executor to call setRemoveOnCancelPolicy if available.
+     * @return true if the policy was successfully enabled
      */
     public static boolean tryEnableCancelPolicy(ScheduledExecutorService executor) {
-        if (SHOULD_TRY_ENABLE_CANCEL_POLICY) {
+        if (SHOULD_TRY_ENABLE_CANCEL_POLICY) { // NOPMD
             final boolean isInstanceOfScheduledThreadPoolExecutor = executor instanceof ScheduledThreadPoolExecutor;
 
-            final Method methodToCall;
+            Method methodToCall;
 
             if (isInstanceOfScheduledThreadPoolExecutor) {
                 final Object localSetRemoveOnCancelPolicyMethod = cachedSetRemoveOnCancelPolicyMethod;
@@ -165,8 +170,12 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
                 try {
                     methodToCall.invoke(executor, true);
                     return true;
-                } catch (Exception e) {
-                    RxJavaPlugins.getInstance().getErrorHandler().handleError(e);
+                } catch (InvocationTargetException e) {
+                    RxJavaHooks.onError(e);
+                } catch (IllegalAccessException e) {
+                    RxJavaHooks.onError(e);
+                } catch (IllegalArgumentException e) {
+                    RxJavaHooks.onError(e);
                 }
             }
         }
@@ -196,7 +205,7 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
 
         return null;
     }
-    
+
     /* package */
     public NewThreadWorker(ThreadFactory threadFactory) {
         ScheduledExecutorService exec = Executors.newScheduledThreadPool(1, threadFactory);
@@ -205,7 +214,6 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
         if (!cancelSupported && exec instanceof ScheduledThreadPoolExecutor) {
             registerExecutor((ScheduledThreadPoolExecutor)exec);
         }
-        schedulersHook = RxJavaPlugins.getInstance().getSchedulersHook();
         executor = exec;
     }
 
@@ -223,14 +231,15 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
     }
 
     /**
-     * @warn javadoc missing
-     * @param action
-     * @param delayTime
-     * @param unit
-     * @return
+     * Schedules the given action by wrapping it into a ScheduledAction on the
+     * underlying ExecutorService, returning the ScheduledAction.
+     * @param action the action to wrap and schedule
+     * @param delayTime the delay in execution
+     * @param unit the time unit of the delay
+     * @return the wrapper ScheduledAction
      */
     public ScheduledAction scheduleActual(final Action0 action, long delayTime, TimeUnit unit) {
-        Action0 decoratedAction = schedulersHook.onSchedule(action);
+        Action0 decoratedAction = RxJavaHooks.onScheduledAction(action);
         ScheduledAction run = new ScheduledAction(decoratedAction);
         Future<?> f;
         if (delayTime <= 0) {
@@ -243,7 +252,7 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
         return run;
     }
     public ScheduledAction scheduleActual(final Action0 action, long delayTime, TimeUnit unit, CompositeSubscription parent) {
-        Action0 decoratedAction = schedulersHook.onSchedule(action);
+        Action0 decoratedAction = RxJavaHooks.onScheduledAction(action);
         ScheduledAction run = new ScheduledAction(decoratedAction, parent);
         parent.add(run);
 
@@ -257,12 +266,12 @@ public class NewThreadWorker extends Scheduler.Worker implements Subscription {
 
         return run;
     }
-    
+
     public ScheduledAction scheduleActual(final Action0 action, long delayTime, TimeUnit unit, SubscriptionList parent) {
-        Action0 decoratedAction = schedulersHook.onSchedule(action);
+        Action0 decoratedAction = RxJavaHooks.onScheduledAction(action);
         ScheduledAction run = new ScheduledAction(decoratedAction, parent);
         parent.add(run);
-        
+
         Future<?> f;
         if (delayTime <= 0) {
             f = executor.submit(run);

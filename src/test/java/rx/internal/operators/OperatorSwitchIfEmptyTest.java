@@ -17,16 +17,15 @@ package rx.internal.operators;
 
 import static org.junit.Assert.*;
 
-import java.util.*;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.Test;
 
 import rx.*;
-import rx.Observable;
 import rx.Observable.OnSubscribe;
-import rx.functions.Action0;
+import rx.functions.*;
 import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
 import rx.subscriptions.Subscriptions;
@@ -58,7 +57,7 @@ public class OperatorSwitchIfEmptyTest {
     @Test
     public void testSwitchWithProducer() throws Exception {
         final AtomicBoolean emitted = new AtomicBoolean(false);
-        Observable<Long> withProducer = Observable.create(new Observable.OnSubscribe<Long>() {
+        Observable<Long> withProducer = Observable.unsafeCreate(new Observable.OnSubscribe<Long>() {
             @Override
             public void call(final Subscriber<? super Long> subscriber) {
                 subscriber.setProducer(new Producer() {
@@ -82,7 +81,7 @@ public class OperatorSwitchIfEmptyTest {
     public void testSwitchTriggerUnsubscribe() throws Exception {
         final Subscription empty = Subscriptions.empty();
 
-        Observable<Long> withProducer = Observable.create(new Observable.OnSubscribe<Long>() {
+        Observable<Long> withProducer = Observable.unsafeCreate(new Observable.OnSubscribe<Long>() {
             @Override
             public void call(final Subscriber<? super Long> subscriber) {
                 subscriber.add(empty);
@@ -121,7 +120,7 @@ public class OperatorSwitchIfEmptyTest {
     public void testSwitchShouldTriggerUnsubscribe() {
         final Subscription s = Subscriptions.empty();
 
-        Observable.create(new Observable.OnSubscribe<Long>() {
+        Observable.unsafeCreate(new Observable.OnSubscribe<Long>() {
             @Override
             public void call(final Subscriber<? super Long> subscriber) {
                 subscriber.add(s);
@@ -142,7 +141,7 @@ public class OperatorSwitchIfEmptyTest {
             }
         };
         Observable.<Integer>empty().switchIfEmpty(Observable.just(1, 2, 3)).subscribe(ts);
-        
+
         assertEquals(Arrays.asList(1), ts.getOnNextEvents());
         ts.assertNoErrors();
         ts.requestMore(1);
@@ -163,7 +162,7 @@ public class OperatorSwitchIfEmptyTest {
         assertTrue(ts.getOnNextEvents().isEmpty());
         ts.assertNoErrors();
     }
-    
+
     @Test
     public void testBackpressureOnFirstObservable() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>(0);
@@ -172,11 +171,11 @@ public class OperatorSwitchIfEmptyTest {
         ts.assertNoErrors();
         ts.assertNoValues();
     }
-    
+
     @Test(timeout = 10000)
     public void testRequestsNotLost() throws InterruptedException {
         final TestSubscriber<Long> ts = new TestSubscriber<Long>(0);
-        Observable.create(new OnSubscribe<Long>() {
+        Observable.unsafeCreate(new OnSubscribe<Long>() {
 
             @Override
             public void call(final Subscriber<? super Long> subscriber) {
@@ -206,5 +205,35 @@ public class OperatorSwitchIfEmptyTest {
         ts.assertNoErrors();
         ts.assertValueCount(2);
         ts.unsubscribe();
+    }
+
+    @Test(expected = NullPointerException.class)
+    public void testAlternateNull() {
+        Observable.just(1).switchIfEmpty(null);
+    }
+
+    Observable<StackTraceElement[]> recursiveSwitch(final int level) {
+        if (level == 100) {
+            return Observable.just(Thread.currentThread().getStackTrace());
+        }
+        return Observable.<StackTraceElement[]>empty().switchIfEmpty(Observable.defer(new Func0<Observable<StackTraceElement[]>>() {
+            @Override
+            public Observable<StackTraceElement[]> call() {
+                return recursiveSwitch(level + 1);
+            }
+        }));
+    }
+
+    @Test
+    public void stackDepth() {
+        StackTraceElement[] trace = recursiveSwitch(0)
+        .toBlocking().last();
+
+        if (trace.length > 1000 || trace.length < 100) {
+            for (StackTraceElement ste : trace) {
+                System.out.println(ste);
+            }
+            fail("Stack too deep: " + trace.length);
+        }
     }
 }

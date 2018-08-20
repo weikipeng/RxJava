@@ -10,7 +10,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * Original License: https://github.com/JCTools/JCTools/blob/master/LICENSE
  * Original location: https://github.com/JCTools/JCTools/blob/master/jctools-core/src/main/java/org/jctools/queues/atomic/MpscLinkedAtomicQueue.java
  */
@@ -26,9 +26,9 @@ package rx.internal.util.atomic;
  * </ol>
  * The queue is initialized with a stub node which is set to both the producer and consumer node references. From this
  * point follow the notes on offer/poll.
- * 
+ *
  * @author nitsanw
- * 
+ *
  * @param <E>
  */
 public final class MpscLinkedAtomicQueue<E> extends BaseLinkedAtomicQueue<E> {
@@ -51,12 +51,11 @@ public final class MpscLinkedAtomicQueue<E> extends BaseLinkedAtomicQueue<E> {
      * </ol>
      * This works because each producer is guaranteed to 'plant' a new node and link the old node. No 2 producers can
      * get the same producer node as part of XCHG guarantee.
-     * 
-     * @see MessagePassingQueue#offer(Object)
+     *
      * @see java.util.Queue#offer(java.lang.Object)
      */
     @Override
-    public final boolean offer(final E nextValue) {
+    public boolean offer(final E nextValue) {
         if (nextValue == null) {
             throw new NullPointerException("null elements not allowed");
         }
@@ -80,12 +79,11 @@ public final class MpscLinkedAtomicQueue<E> extends BaseLinkedAtomicQueue<E> {
      * </ol>
      * This means the consumerNode.value is always null, which is also the starting point for the queue. Because null
      * values are not allowed to be offered this is the only node with it's value set to null at any one time.
-     * 
-     * @see MessagePassingQueue#poll()
+     *
      * @see java.util.Queue#poll()
      */
     @Override
-    public final E poll() {
+    public E poll() {
         LinkedQueueNode<E> currConsumerNode = lpConsumerNode(); // don't load twice, it's alright
         LinkedQueueNode<E> nextNode = currConsumerNode.lvNext();
         if (nextNode != null) {
@@ -96,9 +94,9 @@ public final class MpscLinkedAtomicQueue<E> extends BaseLinkedAtomicQueue<E> {
         }
         else if (currConsumerNode != lvProducerNode()) {
             // spin, we are no longer wait free
-            while((nextNode = currConsumerNode.lvNext()) == null);
+            while ((nextNode = currConsumerNode.lvNext()) == null) { } // NOPMD
             // got the next node...
-            
+
             // we have to null out the value because we are going to hang on to the node
             final E nextValue = nextNode.getAndNullValue();
             spConsumerNode(nextNode);
@@ -108,7 +106,7 @@ public final class MpscLinkedAtomicQueue<E> extends BaseLinkedAtomicQueue<E> {
     }
 
     @Override
-    public final E peek() {
+    public E peek() {
         LinkedQueueNode<E> currConsumerNode = lpConsumerNode(); // don't load twice, it's alright
         LinkedQueueNode<E> nextNode = currConsumerNode.lvNext();
         if (nextNode != null) {
@@ -116,7 +114,7 @@ public final class MpscLinkedAtomicQueue<E> extends BaseLinkedAtomicQueue<E> {
         }
         else if (currConsumerNode != lvProducerNode()) {
             // spin, we are no longer wait free
-            while((nextNode = currConsumerNode.lvNext()) == null);
+            while ((nextNode = currConsumerNode.lvNext()) == null) { } // NOPMD
             // got the next node...
             return nextNode.lpValue();
         }

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,31 +15,25 @@
  */
 package rx.subjects;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 import org.mockito.InOrder;
-import org.mockito.Mockito;
 
 import rx.Observable;
 import rx.Observer;
 import rx.Subscription;
-import rx.exceptions.CompositeException;
-import rx.exceptions.OnErrorNotImplementedException;
-import rx.exceptions.TestException;
+import rx.exceptions.*;
 import rx.functions.Action1;
 import rx.functions.Func1;
 import rx.observers.TestSubscriber;
@@ -68,7 +62,7 @@ public class PublishSubjectTest {
         subject.onError(new Throwable());
 
         assertCompletedObserver(observer);
-        // todo bug?            assertNeverObserver(anotherObserver);
+        assertNeverObserver(anotherObserver);
     }
 
     @Test
@@ -118,8 +112,20 @@ public class PublishSubjectTest {
         verify(observer, times(1)).onNext("one");
         verify(observer, times(1)).onNext("two");
         verify(observer, times(1)).onNext("three");
-        verify(observer, Mockito.never()).onError(any(Throwable.class));
+        verify(observer, never()).onNext("four");
+        verify(observer, never()).onError(any(Throwable.class));
         verify(observer, times(1)).onCompleted();
+        verifyNoMoreInteractions(observer);
+    }
+
+    private void assertNeverObserver(Observer<String> observer) {
+        verify(observer, never()).onNext("one");
+        verify(observer, never()).onNext("two");
+        verify(observer, never()).onNext("three");
+        verify(observer, never()).onNext("four");
+        verify(observer, never()).onError(any(Throwable.class));
+        verify(observer, times(1)).onCompleted();
+        verifyNoMoreInteractions(observer);
     }
 
     @Test
@@ -144,7 +150,7 @@ public class PublishSubjectTest {
         subject.onCompleted();
 
         assertErrorObserver(observer);
-        // todo bug?            assertNeverObserver(anotherObserver);
+        assertNeverErrorObserver(anotherObserver);
     }
 
     private void assertErrorObserver(Observer<String> observer) {
@@ -152,7 +158,18 @@ public class PublishSubjectTest {
         verify(observer, times(1)).onNext("two");
         verify(observer, times(1)).onNext("three");
         verify(observer, times(1)).onError(testException);
-        verify(observer, Mockito.never()).onCompleted();
+        verify(observer, never()).onCompleted();
+        verifyNoMoreInteractions(observer);
+    }
+
+    private void assertNeverErrorObserver(Observer<String> observer) {
+        verify(observer, never()).onNext("one");
+        verify(observer, never()).onNext("two");
+        verify(observer, never()).onNext("three");
+        verify(observer, never()).onNext("four");
+        verify(observer, times(1)).onError(any(Throwable.class));
+        verify(observer, never()).onCompleted();
+        verifyNoMoreInteractions(observer);
     }
 
     @Test
@@ -180,10 +197,10 @@ public class PublishSubjectTest {
     }
 
     private void assertCompletedStartingWithThreeObserver(Observer<String> observer) {
-        verify(observer, Mockito.never()).onNext("one");
-        verify(observer, Mockito.never()).onNext("two");
+        verify(observer, never()).onNext("one");
+        verify(observer, never()).onNext("two");
         verify(observer, times(1)).onNext("three");
-        verify(observer, Mockito.never()).onError(any(Throwable.class));
+        verify(observer, never()).onError(any(Throwable.class));
         verify(observer, times(1)).onCompleted();
     }
 
@@ -215,9 +232,9 @@ public class PublishSubjectTest {
     private void assertObservedUntilTwo(Observer<String> observer) {
         verify(observer, times(1)).onNext("one");
         verify(observer, times(1)).onNext("two");
-        verify(observer, Mockito.never()).onNext("three");
-        verify(observer, Mockito.never()).onError(any(Throwable.class));
-        verify(observer, Mockito.never()).onCompleted();
+        verify(observer, never()).onNext("three");
+        verify(observer, never()).onError(any(Throwable.class));
+        verify(observer, never()).onCompleted();
     }
 
     @Test
@@ -313,7 +330,7 @@ public class PublishSubjectTest {
 
     private final Throwable testException = new Throwable();
 
-    @Test(timeout = 1000)
+    @Test(timeout = 5000)
     public void testUnsubscriptionCase() {
         PublishSubject<String> src = PublishSubject.create();
 
@@ -348,14 +365,14 @@ public class PublishSubjectTest {
                     }
                 });
             src.onNext(v);
-            
+
             inOrder.verify(o).onNext(v + ", " + v);
             inOrder.verify(o).onCompleted();
             verify(o, never()).onError(any(Throwable.class));
         }
     }
-    
-    
+
+
     @Test
     public void testOnErrorThrowsDoesntPreventDelivery() {
         PublishSubject<String> ps = PublishSubject.create();
@@ -370,10 +387,10 @@ public class PublishSubjectTest {
         } catch (OnErrorNotImplementedException e) {
             // ignore
         }
-        // even though the onError above throws we should still receive it on the other subscriber 
+        // even though the onError above throws we should still receive it on the other subscriber
         assertEquals(1, ts.getOnErrorEvents().size());
     }
-    
+
     /**
      * This one has multiple failures so should get a CompositeException
      */
@@ -396,40 +413,40 @@ public class PublishSubjectTest {
             // we should have 5 of them
             assertEquals(5, e.getExceptions().size());
         }
-        // even though the onError above throws we should still receive it on the other subscriber 
+        // even though the onError above throws we should still receive it on the other subscriber
         assertEquals(1, ts.getOnErrorEvents().size());
     }
     @Test
     public void testCurrentStateMethodsNormal() {
         PublishSubject<Object> as = PublishSubject.create();
-        
+
         assertFalse(as.hasThrowable());
         assertFalse(as.hasCompleted());
         assertNull(as.getThrowable());
-        
+
         as.onNext(1);
-        
+
         assertFalse(as.hasThrowable());
         assertFalse(as.hasCompleted());
         assertNull(as.getThrowable());
-        
+
         as.onCompleted();
-        
+
         assertFalse(as.hasThrowable());
         assertTrue(as.hasCompleted());
         assertNull(as.getThrowable());
     }
-    
+
     @Test
     public void testCurrentStateMethodsEmpty() {
         PublishSubject<Object> as = PublishSubject.create();
-        
+
         assertFalse(as.hasThrowable());
         assertFalse(as.hasCompleted());
         assertNull(as.getThrowable());
-        
+
         as.onCompleted();
-        
+
         assertFalse(as.hasThrowable());
         assertTrue(as.hasCompleted());
         assertNull(as.getThrowable());
@@ -437,15 +454,109 @@ public class PublishSubjectTest {
     @Test
     public void testCurrentStateMethodsError() {
         PublishSubject<Object> as = PublishSubject.create();
-        
+
         assertFalse(as.hasThrowable());
         assertFalse(as.hasCompleted());
         assertNull(as.getThrowable());
-        
+
         as.onError(new TestException());
-        
+
         assertTrue(as.hasThrowable());
         assertFalse(as.hasCompleted());
         assertTrue(as.getThrowable() instanceof TestException);
+    }
+
+    @Test
+    public void testPublishSubjectValueRelay() {
+        PublishSubject<Integer> async = PublishSubject.create();
+        async.onNext(1);
+        async.onCompleted();
+
+        assertFalse(async.hasObservers());
+        assertTrue(async.hasCompleted());
+        assertFalse(async.hasThrowable());
+        assertNull(async.getThrowable());
+    }
+
+    @Test
+    public void testPublishSubjectValueEmpty() {
+        PublishSubject<Integer> async = PublishSubject.create();
+        async.onCompleted();
+
+        assertFalse(async.hasObservers());
+        assertTrue(async.hasCompleted());
+        assertFalse(async.hasThrowable());
+        assertNull(async.getThrowable());
+    }
+    @Test
+    public void testPublishSubjectValueError() {
+        PublishSubject<Integer> async = PublishSubject.create();
+        TestException te = new TestException();
+        async.onError(te);
+
+        assertFalse(async.hasObservers());
+        assertFalse(async.hasCompleted());
+        assertTrue(async.hasThrowable());
+        assertSame(te, async.getThrowable());
+    }
+
+    @Test
+    public void backpressureFailFast() {
+        PublishSubject<Integer> ps = PublishSubject.create();
+
+        TestSubscriber<Integer> ts = TestSubscriber.create(1);
+
+        ps.subscribe(ts);
+
+        ps.onNext(1);
+
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertNotCompleted();
+
+        ps.onNext(2);
+
+        ts.assertValue(1);
+        ts.assertError(MissingBackpressureException.class);
+        ts.assertNotCompleted();
+
+        assertEquals("PublishSubject: could not emit value due to lack of requests", ts.getOnErrorEvents().get(0).getMessage());
+    }
+
+    @Test
+    public void crossUnsubscribe() {
+        PublishSubject<Integer> ps = PublishSubject.create();
+
+        final TestSubscriber<Integer> ts0 = TestSubscriber.create();
+
+        TestSubscriber<Integer> ts1 = new TestSubscriber<Integer>() {
+            @Override
+            public void onNext(Integer t) {
+                super.onNext(t);
+                if (t == 2) {
+                    ts0.unsubscribe();
+                }
+            }
+        };
+
+        ps.subscribe(ts1);
+        ps.subscribe(ts0);
+
+        ps.onNext(1);
+
+        ts0.assertValue(1);
+        ts1.assertValue(1);
+
+        ps.onNext(2);
+        ps.onCompleted();
+
+        ts0.assertValue(1);
+        ts0.assertNoErrors();
+        ts0.assertNotCompleted();
+        ts0.assertUnsubscribed();
+
+        ts1.assertValues(1, 2);
+        ts1.assertNoErrors();
+        ts1.assertCompleted();
     }
 }

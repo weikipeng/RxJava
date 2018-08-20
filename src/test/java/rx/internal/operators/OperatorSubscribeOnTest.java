@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,17 +26,12 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.Test;
 
-import rx.Observable;
+import rx.*;
 import rx.Observable.OnSubscribe;
 import rx.Observable.Operator;
-import rx.Observer;
-import rx.Producer;
-import rx.Scheduler;
-import rx.Subscriber;
-import rx.Subscription;
-import rx.functions.Action0;
-import rx.observers.TestObserver;
-import rx.observers.TestSubscriber;
+import rx.functions.*;
+import rx.internal.util.*;
+import rx.observers.*;
 import rx.schedulers.Schedulers;
 
 public class OperatorSubscribeOnTest {
@@ -48,10 +43,10 @@ public class OperatorSubscribeOnTest {
         final CountDownLatch latch = new CountDownLatch(1);
         final CountDownLatch doneLatch = new CountDownLatch(1);
 
-        TestObserver<Integer> observer = new TestObserver<Integer>();
+        TestSubscriber<Integer> observer = new TestSubscriber<Integer>();
 
         final Subscription subscription = Observable
-                .create(new Observable.OnSubscribe<Integer>() {
+                .unsafeCreate(new Observable.OnSubscribe<Integer>() {
                     @Override
                     public void call(
                             final Subscriber<? super Integer> subscriber) {
@@ -80,13 +75,13 @@ public class OperatorSubscribeOnTest {
         latch.countDown();
         doneLatch.await();
         assertEquals(0, observer.getOnErrorEvents().size());
-        assertEquals(1, observer.getOnCompletedEvents().size());
+        assertEquals(1, observer.getCompletions());
     }
 
     @Test
     public void testThrownErrorHandling() {
         TestSubscriber<String> ts = new TestSubscriber<String>();
-        Observable.create(new OnSubscribe<String>() {
+        Observable.unsafeCreate(new OnSubscribe<String>() {
 
             @Override
             public void call(Subscriber<? super String> s) {
@@ -101,7 +96,7 @@ public class OperatorSubscribeOnTest {
     @Test
     public void testOnError() {
         TestSubscriber<String> ts = new TestSubscriber<String>();
-        Observable.create(new OnSubscribe<String>() {
+        Observable.unsafeCreate(new OnSubscribe<String>() {
 
             @Override
             public void call(Subscriber<? super String> s) {
@@ -133,7 +128,7 @@ public class OperatorSubscribeOnTest {
             return new SlowInner(actual.createWorker());
         }
 
-        private final class SlowInner extends Worker {
+        final class SlowInner extends Worker {
 
             private final Scheduler.Worker actualInner;
 
@@ -171,7 +166,7 @@ public class OperatorSubscribeOnTest {
     public void testUnsubscribeInfiniteStream() throws InterruptedException {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
         final AtomicInteger count = new AtomicInteger();
-        Observable.create(new OnSubscribe<Integer>() {
+        Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
             @Override
             public void call(Subscriber<? super Integer> sub) {
@@ -268,4 +263,85 @@ public class OperatorSubscribeOnTest {
         ts.assertNoErrors();
     }
 
+    @Test
+    public void noSamepoolDeadlock() {
+        final int n = 4 * RxRingBuffer.SIZE;
+
+        Observable.create(new Action1<Emitter<Object>>() {
+            @Override
+            public void call(Emitter<Object> e) {
+                for (int i = 0; i < n; i++) {
+                    e.onNext(i);
+                    try {
+                        Thread.sleep(1);
+                    } catch (InterruptedException e1) {
+                        e1.printStackTrace();
+                    }
+                }
+                e.onCompleted();
+            }
+        }, Emitter.BackpressureMode.DROP)
+        .map(UtilityFunctions.identity())
+        .subscribeOn(Schedulers.io(), false)
+        .observeOn(Schedulers.computation())
+        .test()
+        .awaitTerminalEvent(5, TimeUnit.SECONDS)
+        .assertValueCount(n)
+        .assertNoErrors()
+        .assertCompleted();
+    }
+
+    @Test
+    public void noSamepoolDeadlockRequestOn() {
+        final int n = 4 * RxRingBuffer.SIZE;
+
+        Observable.create(new Action1<Emitter<Object>>() {
+            @Override
+            public void call(Emitter<Object> e) {
+                for (int i = 0; i < n; i++) {
+                    e.onNext(i);
+                    try {
+                        Thread.sleep(1);
+                    } catch (InterruptedException e1) {
+                        e1.printStackTrace();
+                    }
+                }
+                e.onCompleted();
+            }
+        }, Emitter.BackpressureMode.DROP)
+        .subscribeOn(Schedulers.io())
+        .observeOn(Schedulers.computation())
+        .test()
+        .awaitTerminalEvent(5, TimeUnit.SECONDS)
+        .assertValueCount(n)
+        .assertNoErrors()
+        .assertCompleted();
+    }
+
+    @Test
+    public void noSamepoolDeadlockRequestOn2() {
+        final int n = 4 * RxRingBuffer.SIZE;
+
+        Observable.create(new Action1<Emitter<Object>>() {
+            @Override
+            public void call(Emitter<Object> e) {
+                for (int i = 0; i < n; i++) {
+                    e.onNext(i);
+                    try {
+                        Thread.sleep(1);
+                    } catch (InterruptedException e1) {
+                        e1.printStackTrace();
+                    }
+                }
+                e.onCompleted();
+            }
+        }, Emitter.BackpressureMode.DROP)
+        .subscribeOn(Schedulers.io(), true)
+        .observeOn(Schedulers.computation())
+        .test()
+        .awaitTerminalEvent(5, TimeUnit.SECONDS)
+        .assertValueCount(RxRingBuffer.SIZE)
+        .assertNoErrors()
+        .assertCompleted();
+    }
 }

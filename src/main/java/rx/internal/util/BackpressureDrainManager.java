@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,18 +15,29 @@
  */
 package rx.internal.util;
 
-import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.AtomicLong;
 
 import rx.Producer;
-import rx.annotations.Experimental;
 
 /**
  * Manages the producer-backpressure-consumer interplay by
  * matching up available elements with requested elements and/or
- * terminal events. 
+ * terminal events.
+ * <p>History: 1.1.0 - experimental
+ * @since 1.3
  */
-@Experimental
-public final class BackpressureDrainManager implements Producer {
+public final class BackpressureDrainManager extends AtomicLong implements Producer {
+    /** */
+    private static final long serialVersionUID = 2826241102729529449L;
+    /** Indicates if one is in emitting phase, guarded by this. */
+    boolean emitting;
+    /** Indicates a terminal state. */
+    volatile boolean terminated;
+    /** Indicates an error state, barrier is provided via terminated. */
+    Throwable exception;
+    /** The callbacks to manage the drain. */
+    final BackpressureQueueCallback actual;
+
     /**
      * Interface representing the minimal callbacks required
      * to operate the drain part of a backpressure system.
@@ -61,21 +72,8 @@ public final class BackpressureDrainManager implements Producer {
         void complete(Throwable exception);
     }
 
-    /** The request counter, updated via REQUESTED_COUNTER. */
-    protected volatile long requestedCount;
-    /** Atomically updates the the requestedCount field. */ 
-    protected static final AtomicLongFieldUpdater<BackpressureDrainManager> REQUESTED_COUNT
-    = AtomicLongFieldUpdater.newUpdater(BackpressureDrainManager.class, "requestedCount");
-    /** Indicates if one is in emitting phase, guarded by this. */
-    protected boolean emitting;
-    /** Indicates a terminal state. */
-    protected volatile boolean terminated;
-    /** Indicates an error state, barrier is provided via terminated. */
-    protected Throwable exception;
-    /** The callbacks to manage the drain. */
-    protected final BackpressureQueueCallback actual;
     /**
-     * Constructs a backpressure drain manager with 0 requesedCount,
+     * Constructs a backpressure drain manager with 0 requestedCount,
      * no terminal event and not emitting.
      * @param actual he queue callback to check for new element availability
      */
@@ -86,14 +84,14 @@ public final class BackpressureDrainManager implements Producer {
      * Checks if a terminal state has been reached.
      * @return true if a terminal state has been reached
      */
-    public final boolean isTerminated() {
+    public boolean isTerminated() {
         return terminated;
     }
     /**
-     * Move into a terminal state. 
+     * Move into a terminal state.
      * Call drain() anytime after.
      */
-    public final void terminate() {
+    public void terminate() {
         terminated = true;
     }
     /**
@@ -103,16 +101,16 @@ public final class BackpressureDrainManager implements Producer {
      * element emission.
      * @param error the exception to deliver
      */
-    public final void terminate(Throwable error) {
+    public void terminate(Throwable error) {
         if (!terminated) {
             exception = error;
             terminated = true;
         }
     }
     /**
-     * Move into a terminal state and drain. 
+     * Move into a terminal state and drain.
      */
-    public final void terminateAndDrain() {
+    public void terminateAndDrain() {
         terminated = true;
         drain();
     }
@@ -122,7 +120,7 @@ public final class BackpressureDrainManager implements Producer {
      * element emission.
      * @param error the exception to deliver
      */
-    public final void terminateAndDrain(Throwable error) {
+    public void terminateAndDrain(Throwable error) {
         if (!terminated) {
             exception = error;
             terminated = true;
@@ -130,7 +128,7 @@ public final class BackpressureDrainManager implements Producer {
         }
     }
     @Override
-    public final void request(long n) {
+    public void request(long n) {
         if (n == 0) {
             return;
         }
@@ -138,7 +136,7 @@ public final class BackpressureDrainManager implements Producer {
         long r;
         long u;
         do {
-            r = requestedCount;
+            r = get();
             mayDrain = r == 0;
             if (r == Long.MAX_VALUE) {
                 break;
@@ -153,7 +151,7 @@ public final class BackpressureDrainManager implements Producer {
                     u = r + n;
                 }
             }
-        } while (!REQUESTED_COUNT.compareAndSet(this, r, u));
+        } while (!compareAndSet(r, u));
         // since we implement producer, we have to call drain
         // on a 0-n request transition
         if (mayDrain) {
@@ -164,8 +162,7 @@ public final class BackpressureDrainManager implements Producer {
      * Try to drain the "queued" elements and terminal events
      * by considering the available and requested event counts.
      */
-    public final void drain() {
-        long n;
+    public void drain() {
         boolean term;
         synchronized (this) {
             if (emitting) {
@@ -174,7 +171,7 @@ public final class BackpressureDrainManager implements Producer {
             emitting = true;
             term = terminated;
         }
-        n = requestedCount;
+        long n = get();
         boolean skipFinal = false;
         try {
             BackpressureQueueCallback a = actual;
@@ -210,7 +207,7 @@ public final class BackpressureDrainManager implements Producer {
                     term = terminated;
                     boolean more = a.peek() != null;
                     // if no backpressure below
-                    if (requestedCount == Long.MAX_VALUE) {
+                    if (get() == Long.MAX_VALUE) {
                         // no new data arrived since the last poll
                         if (!more && !term) {
                             skipFinal = true;
@@ -219,7 +216,7 @@ public final class BackpressureDrainManager implements Producer {
                         }
                         n = Long.MAX_VALUE;
                     } else {
-                        n = REQUESTED_COUNT.addAndGet(this, -emitted);
+                        n = addAndGet(-emitted);
                         if ((n == 0 || !more) && (!term || more)) {
                             skipFinal = true;
                             emitting = false;

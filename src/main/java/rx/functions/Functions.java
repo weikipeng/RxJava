@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,7 +22,8 @@ public final class Functions {
 
     /**
      * Converts a {@link Func0} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <R> the result type
      * @param f
      *          the {@code Func0} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -33,7 +34,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 0) {
-                    throw new RuntimeException("Func0 expecting 0 arguments.");
+                    throw new IllegalArgumentException("Func0 expecting 0 arguments.");
                 }
                 return f.call();
             }
@@ -43,7 +44,9 @@ public final class Functions {
 
     /**
      * Converts a {@link Func1} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func1} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -55,7 +58,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 1) {
-                    throw new RuntimeException("Func1 expecting 1 argument.");
+                    throw new IllegalArgumentException("Func1 expecting 1 argument.");
                 }
                 return f.call((T0) args[0]);
             }
@@ -65,7 +68,10 @@ public final class Functions {
 
     /**
      * Converts a {@link Func2} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func2} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -77,7 +83,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 2) {
-                    throw new RuntimeException("Func2 expecting 2 arguments.");
+                    throw new IllegalArgumentException("Func2 expecting 2 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1]);
             }
@@ -87,7 +93,11 @@ public final class Functions {
 
     /**
      * Converts a {@link Func3} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func3} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -99,7 +109,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 3) {
-                    throw new RuntimeException("Func3 expecting 3 arguments.");
+                    throw new IllegalArgumentException("Func3 expecting 3 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1], (T2) args[2]);
             }
@@ -109,7 +119,12 @@ public final class Functions {
 
     /**
      * Converts a {@link Func4} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
+     * @param <T3> the fourth argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func4} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -121,7 +136,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 4) {
-                    throw new RuntimeException("Func4 expecting 4 arguments.");
+                    throw new IllegalArgumentException("Func4 expecting 4 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1], (T2) args[2], (T3) args[3]);
             }
@@ -131,7 +146,13 @@ public final class Functions {
 
     /**
      * Converts a {@link Func5} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
+     * @param <T3> the fourth argument type
+     * @param <T4> the fifth argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func5} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -143,7 +164,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 5) {
-                    throw new RuntimeException("Func5 expecting 5 arguments.");
+                    throw new IllegalArgumentException("Func5 expecting 5 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1], (T2) args[2], (T3) args[3], (T4) args[4]);
             }
@@ -153,7 +174,14 @@ public final class Functions {
 
     /**
      * Converts a {@link Func6} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
+     * @param <T3> the fourth argument type
+     * @param <T4> the fifth argument type
+     * @param <T5> the sixth argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func6} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -165,7 +193,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 6) {
-                    throw new RuntimeException("Func6 expecting 6 arguments.");
+                    throw new IllegalArgumentException("Func6 expecting 6 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1], (T2) args[2], (T3) args[3], (T4) args[4], (T5) args[5]);
             }
@@ -175,7 +203,15 @@ public final class Functions {
 
     /**
      * Converts a {@link Func7} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
+     * @param <T3> the fourth argument type
+     * @param <T4> the fifth argument type
+     * @param <T5> the sixth argument type
+     * @param <T6> the seventh argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func7} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -187,7 +223,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 7) {
-                    throw new RuntimeException("Func7 expecting 7 arguments.");
+                    throw new IllegalArgumentException("Func7 expecting 7 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1], (T2) args[2], (T3) args[3], (T4) args[4], (T5) args[5], (T6) args[6]);
             }
@@ -197,7 +233,16 @@ public final class Functions {
 
     /**
      * Converts a {@link Func8} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
+     * @param <T3> the fourth argument type
+     * @param <T4> the fifth argument type
+     * @param <T5> the sixth argument type
+     * @param <T6> the seventh argument type
+     * @param <T7> the eighth argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func8} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -209,7 +254,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 8) {
-                    throw new RuntimeException("Func8 expecting 8 arguments.");
+                    throw new IllegalArgumentException("Func8 expecting 8 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1], (T2) args[2], (T3) args[3], (T4) args[4], (T5) args[5], (T6) args[6], (T7) args[7]);
             }
@@ -219,7 +264,17 @@ public final class Functions {
 
     /**
      * Converts a {@link Func9} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
+     * @param <T3> the fourth argument type
+     * @param <T4> the fifth argument type
+     * @param <T5> the sixth argument type
+     * @param <T6> the seventh argument type
+     * @param <T7> the eighth argument type
+     * @param <T8> the ninth argument type
+     * @param <R> the result type
      * @param f
      *          the {@code Func9} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -231,7 +286,7 @@ public final class Functions {
             @Override
             public R call(Object... args) {
                 if (args.length != 9) {
-                    throw new RuntimeException("Func9 expecting 9 arguments.");
+                    throw new IllegalArgumentException("Func9 expecting 9 arguments.");
                 }
                 return f.call((T0) args[0], (T1) args[1], (T2) args[2], (T3) args[3], (T4) args[4], (T5) args[5], (T6) args[6], (T7) args[7], (T8) args[8]);
             }
@@ -241,7 +296,7 @@ public final class Functions {
 
     /**
      * Converts an {@link Action0} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
      * @param f
      *          the {@code Action0} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -252,7 +307,7 @@ public final class Functions {
             @Override
             public Void call(Object... args) {
                 if (args.length != 0) {
-                    throw new RuntimeException("Action0 expecting 0 arguments.");
+                    throw new IllegalArgumentException("Action0 expecting 0 arguments.");
                 }
                 f.call();
                 return null;
@@ -263,7 +318,8 @@ public final class Functions {
 
     /**
      * Converts an {@link Action1} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
      * @param f
      *          the {@code Action1} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -275,7 +331,7 @@ public final class Functions {
             @Override
             public Void call(Object... args) {
                 if (args.length != 1) {
-                    throw new RuntimeException("Action1 expecting 1 argument.");
+                    throw new IllegalArgumentException("Action1 expecting 1 argument.");
                 }
                 f.call((T0) args[0]);
                 return null;
@@ -286,7 +342,9 @@ public final class Functions {
 
     /**
      * Converts an {@link Action2} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
      * @param f
      *          the {@code Action2} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -298,7 +356,7 @@ public final class Functions {
             @Override
             public Void call(Object... args) {
                 if (args.length != 2) {
-                    throw new RuntimeException("Action3 expecting 2 arguments.");
+                    throw new IllegalArgumentException("Action3 expecting 2 arguments.");
                 }
                 f.call((T0) args[0], (T1) args[1]);
                 return null;
@@ -309,7 +367,10 @@ public final class Functions {
 
     /**
      * Converts an {@link Action3} to a {@link FuncN} to allow heterogeneous handling of functions with different arities.
-     * 
+     *
+     * @param <T0> the first argument type
+     * @param <T1> the second argument type
+     * @param <T2> the third argument type
      * @param f
      *          the {@code Action3} to convert
      * @return a {@link FuncN} representation of {@code f}
@@ -321,7 +382,7 @@ public final class Functions {
             @Override
             public Void call(Object... args) {
                 if (args.length != 3) {
-                    throw new RuntimeException("Action3 expecting 3 arguments.");
+                    throw new IllegalArgumentException("Action3 expecting 3 arguments.");
                 }
                 f.call((T0) args[0], (T1) args[1], (T2) args[2]);
                 return null;

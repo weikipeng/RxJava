@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,21 +22,33 @@ import rx.exceptions.Exceptions;
 
 /**
  * Subscription that represents a group of Subscriptions that are unsubscribed together.
- * 
+ *
  * @see <a href="http://msdn.microsoft.com/en-us/library/system.reactive.disposables.compositedisposable(v=vs.103).aspx">Rx.Net equivalent CompositeDisposable</a>
  */
 public final class SubscriptionList implements Subscription {
 
-    private LinkedList<Subscription> subscriptions;
+    private List<Subscription> subscriptions;
     private volatile boolean unsubscribed;
 
+    /**
+     * Constructs an empty SubscriptionList.
+     */
     public SubscriptionList() {
+        // nothing to do
     }
 
+    /**
+     * Constructs a SubscriptionList with the given initial child subscriptions.
+     * @param subscriptions the array of subscriptions to start with
+     */
     public SubscriptionList(final Subscription... subscriptions) {
         this.subscriptions = new LinkedList<Subscription>(Arrays.asList(subscriptions));
     }
 
+    /**
+     * Constructs a SubscriptionList with the given initial child subscription.
+     * @param s the initial subscription instance
+     */
     public SubscriptionList(Subscription s) {
         this.subscriptions = new LinkedList<Subscription>();
         this.subscriptions.add(s);
@@ -62,7 +74,7 @@ public final class SubscriptionList implements Subscription {
         if (!unsubscribed) {
             synchronized (this) {
                 if (!unsubscribed) {
-                    LinkedList<Subscription> subs = subscriptions;
+                    List<Subscription> subs = subscriptions;
                     if (subs == null) {
                         subs = new LinkedList<Subscription>();
                         subscriptions = subs;
@@ -78,9 +90,9 @@ public final class SubscriptionList implements Subscription {
 
     public void remove(final Subscription s) {
         if (!unsubscribed) {
-            boolean unsubscribe = false;
+            boolean unsubscribe;
             synchronized (this) {
-                LinkedList<Subscription> subs = subscriptions;
+                List<Subscription> subs = subscriptions;
                 if (unsubscribed || subs == null) {
                     return;
                 }

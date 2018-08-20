@@ -15,14 +15,10 @@
  */
 package rx.internal.operators;
 
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import rx.Observable;
-import rx.Producer;
-import rx.Scheduler;
-import rx.Subscriber;
-import rx.functions.Action0;
-import rx.functions.Func2;
+import rx.*;
+import rx.functions.*;
 import rx.internal.producers.ProducerArbiter;
 import rx.schedulers.Schedulers;
 import rx.subscriptions.SerialSubscription;
@@ -37,7 +33,7 @@ public final class OperatorRetryWithPredicate<T> implements Observable.Operator<
     public Subscriber<? super Observable<T>> call(final Subscriber<? super T> child) {
         final Scheduler.Worker inner = Schedulers.trampoline().createWorker();
         child.add(inner);
-        
+
         final SerialSubscription serialSubscription = new SerialSubscription();
         // add serialSubscription so it gets unsubscribed if child is unsubscribed
         child.add(serialSubscription);
@@ -45,22 +41,19 @@ public final class OperatorRetryWithPredicate<T> implements Observable.Operator<
         child.setProducer(pa);
         return new SourceSubscriber<T>(child, predicate, inner, serialSubscription, pa);
     }
-    
+
     static final class SourceSubscriber<T> extends Subscriber<Observable<T>> {
         final Subscriber<? super T> child;
         final Func2<Integer, Throwable, Boolean> predicate;
         final Scheduler.Worker inner;
         final SerialSubscription serialSubscription;
         final ProducerArbiter pa;
-        
-        volatile int attempts;
-        @SuppressWarnings("rawtypes")
-        static final AtomicIntegerFieldUpdater<SourceSubscriber> ATTEMPTS_UPDATER
-                = AtomicIntegerFieldUpdater.newUpdater(SourceSubscriber.class, "attempts");
 
-        public SourceSubscriber(Subscriber<? super T> child, 
-                final Func2<Integer, Throwable, Boolean> predicate, 
-                Scheduler.Worker inner, 
+        final AtomicInteger attempts = new AtomicInteger();
+
+        public SourceSubscriber(Subscriber<? super T> child,
+                final Func2<Integer, Throwable, Boolean> predicate,
+                Scheduler.Worker inner,
                 SerialSubscription serialSubscription,
                 ProducerArbiter pa) {
             this.child = child;
@@ -69,8 +62,8 @@ public final class OperatorRetryWithPredicate<T> implements Observable.Operator<
             this.serialSubscription = serialSubscription;
             this.pa = pa;
         }
-        
-        
+
+
         @Override
         public void onCompleted() {
             // ignore as we expect a single nested Observable<T>
@@ -88,7 +81,7 @@ public final class OperatorRetryWithPredicate<T> implements Observable.Operator<
                 @Override
                 public void call() {
                     final Action0 _self = this;
-                    ATTEMPTS_UPDATER.incrementAndGet(SourceSubscriber.this);
+                    attempts.incrementAndGet();
 
                     // new subscription each time so if it unsubscribes itself it does not prevent retries
                     // by unsubscribing the child subscription
@@ -106,7 +99,7 @@ public final class OperatorRetryWithPredicate<T> implements Observable.Operator<
                         public void onError(Throwable e) {
                             if (!done) {
                                 done = true;
-                                if (predicate.call(attempts, e) && !inner.isUnsubscribed()) {
+                                if (predicate.call(attempts.get(), e) && !inner.isUnsubscribed()) {
                                     // retry again
                                     inner.schedule(_self);
                                 } else {
@@ -129,7 +122,7 @@ public final class OperatorRetryWithPredicate<T> implements Observable.Operator<
                             pa.setProducer(p);
                         }
                     };
-                    // register this Subscription (and unsubscribe previous if exists) 
+                    // register this Subscription (and unsubscribe previous if exists)
                     serialSubscription.set(subscriber);
                     o.unsafeSubscribe(subscriber);
                 }

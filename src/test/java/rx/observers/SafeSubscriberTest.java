@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,6 @@ package rx.observers;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.After;
@@ -36,20 +35,13 @@ import rx.plugins.RxJavaErrorHandler;
 import rx.plugins.RxJavaPlugins;
 import rx.subscriptions.Subscriptions;
 
+@SuppressWarnings("deprecation")
 public class SafeSubscriberTest {
-    
+
     @Before
     @After
     public void resetBefore() {
-        RxJavaPlugins ps = RxJavaPlugins.getInstance();
-        
-        try {
-            Method m = ps.getClass().getDeclaredMethod("reset");
-            m.setAccessible(true);
-            m.invoke(ps);
-        } catch (Throwable ex) {
-            ex.printStackTrace();
-        }
+        RxJavaPlugins.getInstance().reset();
     }
 
     @Test
@@ -68,7 +60,7 @@ public class SafeSubscriberTest {
             assertTrue(safe.isUnsubscribed());
         }
     }
-    
+
     @Test
     public void testOnCompletedThrows2() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
@@ -78,17 +70,17 @@ public class SafeSubscriberTest {
             }
         };
         SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
-        
+
         try {
             safe.onCompleted();
         } catch (OnErrorNotImplementedException ex) {
             // expected
         }
-        
+
         assertTrue(safe.isUnsubscribed());
     }
-    
-    @Test(expected=OnCompletedFailedException.class)
+
+    @Test(expected = OnCompletedFailedException.class)
     public void testPluginException() {
         RxJavaPlugins.getInstance().registerErrorHandler(new RxJavaErrorHandler() {
             @Override
@@ -96,7 +88,7 @@ public class SafeSubscriberTest {
                 throw new RuntimeException();
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onCompleted() {
@@ -104,10 +96,10 @@ public class SafeSubscriberTest {
             }
         };
         SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
-        
+
         safe.onCompleted();
     }
-    
+
     @Test(expected = OnErrorFailedException.class)
     public void testPluginExceptionWhileOnErrorUnsubscribeThrows() {
         RxJavaPlugins.getInstance().registerErrorHandler(new RxJavaErrorHandler() {
@@ -119,7 +111,7 @@ public class SafeSubscriberTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
         SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
         safe.add(Subscriptions.create(new Action0() {
@@ -128,10 +120,10 @@ public class SafeSubscriberTest {
                 throw new RuntimeException();
             }
         }));
-        
+
         safe.onError(new TestException());
     }
-    
+
     @Test(expected = RuntimeException.class)
     public void testPluginExceptionWhileOnErrorThrowsNotImplAndUnsubscribeThrows() {
         RxJavaPlugins.getInstance().registerErrorHandler(new RxJavaErrorHandler() {
@@ -143,7 +135,7 @@ public class SafeSubscriberTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
@@ -157,10 +149,10 @@ public class SafeSubscriberTest {
                 throw new RuntimeException();
             }
         }));
-        
+
         safe.onError(new TestException());
     }
-    
+
     @Test(expected = OnErrorFailedException.class)
     public void testPluginExceptionWhileOnErrorThrows() {
         RxJavaPlugins.getInstance().registerErrorHandler(new RxJavaErrorHandler() {
@@ -172,7 +164,7 @@ public class SafeSubscriberTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
@@ -180,7 +172,7 @@ public class SafeSubscriberTest {
             }
         };
         SafeSubscriber<Integer> safe = new SafeSubscriber<Integer>(ts);
-        
+
         safe.onError(new TestException());
     }
     @Test(expected = OnErrorFailedException.class)
@@ -194,7 +186,7 @@ public class SafeSubscriberTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
@@ -208,7 +200,7 @@ public class SafeSubscriberTest {
                 throw new RuntimeException();
             }
         }));
-        
+
         safe.onError(new TestException());
     }
     @Test(expected = OnErrorFailedException.class)
@@ -222,7 +214,7 @@ public class SafeSubscriberTest {
                 }
             }
         });
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onError(Throwable e) {
@@ -236,10 +228,10 @@ public class SafeSubscriberTest {
                 throw new RuntimeException();
             }
         }));
-        
+
         safe.onError(new TestException());
     }
-    
+
     @Test
     public void testPluginErrorHandlerReceivesExceptionWhenUnsubscribeAfterCompletionThrows() {
         final AtomicInteger calls = new AtomicInteger();
@@ -249,7 +241,7 @@ public class SafeSubscriberTest {
                 calls.incrementAndGet();
             }
         });
-        
+
         final AtomicInteger errors = new AtomicInteger();
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
@@ -265,13 +257,13 @@ public class SafeSubscriberTest {
                 throw ex;
             }
         }));
-        
+
         try {
             safe.onCompleted();
             Assert.fail();
-        } catch(UnsubscribeFailedException e) {
-            assertEquals(1, (int) calls.get());
-            assertEquals(0, (int) errors.get());
+        } catch (UnsubscribeFailedException e) {
+            assertEquals(1, calls.get());
+            assertEquals(0, errors.get());
         }
     }
 
@@ -284,15 +276,15 @@ public class SafeSubscriberTest {
                 calls.incrementAndGet();
             }
         });
-        
+
         final AtomicInteger errors = new AtomicInteger();
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
-            
-            @Override 
+
+            @Override
             public void onCompleted() {
                 throw new RuntimeException();
             }
-            
+
             @Override
             public void onError(Throwable e) {
                 errors.incrementAndGet();
@@ -305,15 +297,15 @@ public class SafeSubscriberTest {
                 throw new RuntimeException();
             }
         }));
-        
+
         try {
             safe.onCompleted();
             Assert.fail();
-        } catch(UnsubscribeFailedException e) {
-            assertEquals(2, (int) calls.get());
-            assertEquals(0, (int) errors.get());
+        } catch (UnsubscribeFailedException e) {
+            assertEquals(2, calls.get());
+            assertEquals(0, errors.get());
         }
     }
 
-    
+
 }

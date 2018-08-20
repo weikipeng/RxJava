@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,13 +17,13 @@ package rx.internal.operators;
 
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,28 +31,25 @@ package rx.internal.operators;
  * limitations under the License.
  */
 
-import static rx.Observable.create;
+import static rx.Observable.unsafeCreate; // NOPMD
 
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.*;
 
-import rx.Notification;
-import rx.Observable;
-import rx.Observable.OnSubscribe;
-import rx.Observable.Operator;
-import rx.Producer;
-import rx.Scheduler;
-import rx.Subscriber;
-import rx.functions.Action0;
-import rx.functions.Func1;
-import rx.functions.Func2;
+import rx.*;
+import rx.Observable.*;
+import rx.functions.*;
 import rx.internal.producers.ProducerArbiter;
 import rx.observers.Subscribers;
 import rx.schedulers.Schedulers;
-import rx.subjects.BehaviorSubject;
+import rx.subjects.*;
 import rx.subscriptions.SerialSubscription;
 
 public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
+    final Observable<T> source;
+    private final Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> controlHandlerFunction;
+    final boolean stopOnComplete;
+    final boolean stopOnError;
+    private final Scheduler scheduler;
 
     static final Func1<Observable<? extends Notification<?>>, Observable<?>> REDO_INFINITE = new Func1<Observable<? extends Notification<?>>, Observable<?>>() {
         @Override
@@ -67,7 +64,7 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
     };
 
     public static final class RedoFinite implements Func1<Observable<? extends Notification<?>>, Observable<?>> {
-        private final long count;
+        final long count;
 
         public RedoFinite(long count) {
             this.count = count;
@@ -77,28 +74,28 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
         public Observable<?> call(Observable<? extends Notification<?>> ts) {
             return ts.map(new Func1<Notification<?>, Notification<?>>() {
 
-                int num=0;
-                
+                int num;
+
                 @Override
                 public Notification<?> call(Notification<?> terminalNotification) {
-                    if(count == 0) {
+                    if (count == 0) {
                         return terminalNotification;
                     }
-                    
+
                     num++;
-                    if(num <= count) {
+                    if (num <= count) {
                         return Notification.createOnNext(num);
                     } else {
                         return terminalNotification;
                     }
                 }
-                
+
             }).dematerialize();
         }
     }
 
     public static final class RetryWithPredicate implements Func1<Observable<? extends Notification<?>>, Observable<? extends Notification<?>>> {
-        private Func2<Integer, Throwable, Boolean> predicate;
+        final Func2<Integer, Throwable, Boolean> predicate;
 
         public RetryWithPredicate(Func2<Integer, Throwable, Boolean> predicate) {
             this.predicate = predicate;
@@ -111,10 +108,11 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
                 @Override
                 public Notification<Integer> call(Notification<Integer> n, Notification<?> term) {
                     final int value = n.getValue();
-                    if (predicate.call(value, term.getThrowable()).booleanValue())
+                    if (predicate.call(value, term.getThrowable())) {
                         return Notification.createOnNext(value + 1);
-                    else
+                    } else {
                         return (Notification<Integer>) term;
+                    }
                 }
             });
         }
@@ -125,19 +123,21 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
     }
 
     public static <T> Observable<T> retry(Observable<T> source, final long count) {
-        if (count < 0)
+        if (count < 0) {
             throw new IllegalArgumentException("count >= 0 expected");
-        if (count == 0)
+        }
+        if (count == 0) {
             return source;
+        }
         return retry(source, new RedoFinite(count));
     }
 
     public static <T> Observable<T> retry(Observable<T> source, Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> notificationHandler) {
-        return create(new OnSubscribeRedo<T>(source, notificationHandler, true, false, Schedulers.trampoline()));
+        return unsafeCreate(new OnSubscribeRedo<T>(source, notificationHandler, true, false, Schedulers.trampoline()));
     }
 
     public static <T> Observable<T> retry(Observable<T> source, Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> notificationHandler, Scheduler scheduler) {
-        return create(new OnSubscribeRedo<T>(source, notificationHandler, true, false, scheduler));
+        return unsafeCreate(new OnSubscribeRedo<T>(source, notificationHandler, true, false, scheduler));
     }
 
     public static <T> Observable<T> repeat(Observable<T> source) {
@@ -153,31 +153,26 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
     }
 
     public static <T> Observable<T> repeat(Observable<T> source, final long count, Scheduler scheduler) {
-        if(count == 0) {
+        if (count == 0) {
             return Observable.empty();
         }
-        if (count < 0)
+        if (count < 0) {
             throw new IllegalArgumentException("count >= 0 expected");
+        }
         return repeat(source, new RedoFinite(count - 1), scheduler);
     }
 
     public static <T> Observable<T> repeat(Observable<T> source, Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> notificationHandler) {
-        return create(new OnSubscribeRedo<T>(source, notificationHandler, false, true, Schedulers.trampoline()));
+        return unsafeCreate(new OnSubscribeRedo<T>(source, notificationHandler, false, true, Schedulers.trampoline()));
     }
 
     public static <T> Observable<T> repeat(Observable<T> source, Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> notificationHandler, Scheduler scheduler) {
-        return create(new OnSubscribeRedo<T>(source, notificationHandler, false, true, scheduler));
+        return unsafeCreate(new OnSubscribeRedo<T>(source, notificationHandler, false, true, scheduler));
     }
 
     public static <T> Observable<T> redo(Observable<T> source, Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> notificationHandler, Scheduler scheduler) {
-        return create(new OnSubscribeRedo<T>(source, notificationHandler, false, false, scheduler));
+        return unsafeCreate(new OnSubscribeRedo<T>(source, notificationHandler, false, false, scheduler));
     }
-
-    private final Observable<T> source;
-    private final Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> controlHandlerFunction;
-    private final boolean stopOnComplete;
-    private final boolean stopOnError;
-    private final Scheduler scheduler;
 
     private OnSubscribeRedo(Observable<T> source, Func1<? super Observable<? extends Notification<?>>, ? extends Observable<?>> f, boolean stopOnComplete, boolean stopOnError,
             Scheduler scheduler) {
@@ -190,12 +185,12 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
 
     @Override
     public void call(final Subscriber<? super T> child) {
-        
+
         // when true is a marker to say we are ready to resubscribe to source
         final AtomicBoolean resumeBoundary = new AtomicBoolean(true);
-        
+
         // incremented when requests are made, decremented when requests are fulfilled
-        final AtomicLong consumerCapacity = new AtomicLong(0l);
+        final AtomicLong consumerCapacity = new AtomicLong();
 
         final Scheduler.Worker worker = scheduler.createWorker();
         child.add(worker);
@@ -203,18 +198,18 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
         final SerialSubscription sourceSubscriptions = new SerialSubscription();
         child.add(sourceSubscriptions);
 
-        // use a subject to receive terminals (onCompleted and onError signals) from 
-        // the source observable. We use a BehaviorSubject because subscribeToSource 
-        // may emit a terminal before the restarts observable (transformed terminals) 
+        // use a subject to receive terminals (onCompleted and onError signals) from
+        // the source observable. We use a BehaviorSubject because subscribeToSource
+        // may emit a terminal before the restarts observable (transformed terminals)
         // is subscribed
-        final BehaviorSubject<Notification<?>> terminals = BehaviorSubject.create();
+        final Subject<Notification<?>, Notification<?>> terminals = BehaviorSubject.<Notification<?>>create().toSerialized();
         final Subscriber<Notification<?>> dummySubscriber = Subscribers.empty();
-        // subscribe immediately so the last emission will be replayed to the next 
+        // subscribe immediately so the last emission will be replayed to the next
         // subscriber (which is the one we care about)
         terminals.subscribe(dummySubscriber);
 
         final ProducerArbiter arbiter = new ProducerArbiter();
-        
+
         final Action0 subscribeToSource = new Action0() {
             @Override
             public void call() {
@@ -279,8 +274,8 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
             }
         };
 
-        // the observable received by the control handler function will receive notifications of onCompleted in the case of 'repeat' 
-        // type operators or notifications of onError for 'retry' this is done by lifting in a custom operator to selectively divert 
+        // the observable received by the control handler function will receive notifications of onCompleted in the case of 'repeat'
+        // type operators or notifications of onError for 'retry' this is done by lifting in a custom operator to selectively divert
         // the retry/repeat relevant values to the control handler
         final Observable<?> restarts = controlHandlerFunction.call(
                 terminals.lift(new Operator<Notification<?>, Notification<?>>() {
@@ -334,8 +329,8 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
                     @Override
                     public void onNext(Object t) {
                         if (!child.isUnsubscribed()) {
-                            // perform a best endeavours check on consumerCapacity 
-                            // with the intent of only resubscribing immediately 
+                            // perform a best endeavours check on consumerCapacity
+                            // with the intent of only resubscribing immediately
                             // if there is outstanding capacity
                             if (consumerCapacity.get() > 0) {
                                 worker.schedule(subscribeToSource);
@@ -362,11 +357,12 @@ public final class OnSubscribeRedo<T> implements OnSubscribe<T> {
                 if (n > 0) {
                     BackpressureUtils.getAndAddRequest(consumerCapacity, n);
                     arbiter.request(n);
-                    if (resumeBoundary.compareAndSet(true, false))
+                    if (resumeBoundary.compareAndSet(true, false)) {
                         worker.schedule(subscribeToSource);
+                    }
                 }
             }
         });
-        
+
     }
 }

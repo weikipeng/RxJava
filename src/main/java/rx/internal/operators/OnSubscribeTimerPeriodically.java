@@ -16,16 +16,16 @@
 package rx.internal.operators;
 
 import java.util.concurrent.TimeUnit;
+
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Scheduler;
 import rx.Scheduler.Worker;
 import rx.exceptions.Exceptions;
-import rx.Subscriber;
 import rx.functions.Action0;
 
 /**
  * Emit 0L after the initial period and ever increasing number after each period.
- * @see <a href='http://msdn.microsoft.com/en-us/library/system.reactive.linq.observable.timer.aspx'>MSDN Observable.Timer</a>
+ * @see <a href="http://msdn.microsoft.com/en-us/library/system.reactive.linq.observable.timer.aspx">MSDN Observable.Timer</a>
  */
 public final class OnSubscribeTimerPeriodically implements OnSubscribe<Long> {
     final long initialDelay;
@@ -58,7 +58,7 @@ public final class OnSubscribeTimerPeriodically implements OnSubscribe<Long> {
                     }
                 }
             }
-            
+
         }, initialDelay, period, unit);
     }
 }

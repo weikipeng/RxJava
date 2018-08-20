@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,18 +19,20 @@ import static org.junit.Assert.*;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.*;
 
+import java.lang.management.ManagementFactory;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.*;
 
 import org.junit.*;
 import org.mockito.*;
 
 import rx.*;
-import rx.Observable.OnSubscribe;
 import rx.Observable;
+import rx.Observable.OnSubscribe;
 import rx.Observer;
 import rx.functions.*;
+import rx.observables.ConnectableObservable;
 import rx.observers.*;
 import rx.schedulers.*;
 import rx.subjects.ReplaySubject;
@@ -276,7 +278,7 @@ public class OnSubscribeRefCountTest {
             testConnectUnsubscribeRaceCondition();
         }
     }
-    
+
     @Test
     public void testConnectUnsubscribeRaceCondition() throws InterruptedException {
         final AtomicInteger subUnsubCount = new AtomicInteger();
@@ -302,7 +304,7 @@ public class OnSubscribeRefCountTest {
                 });
 
         TestSubscriber<Long> s = new TestSubscriber<Long>();
-        
+
         o.publish().refCount().subscribeOn(Schedulers.computation()).subscribe(s);
         System.out.println("send unsubscribe");
         // now immediately unsubscribe while subscribeOn is racing to subscribe
@@ -322,7 +324,7 @@ public class OnSubscribeRefCountTest {
     }
 
     private Observable<Long> synchronousInterval() {
-        return Observable.create(new OnSubscribe<Long>() {
+        return Observable.unsafeCreate(new OnSubscribe<Long>() {
 
             @Override
             public void call(Subscriber<? super Long> subscriber) {
@@ -341,7 +343,7 @@ public class OnSubscribeRefCountTest {
     public void onlyFirstShouldSubscribeAndLastUnsubscribe() {
         final AtomicInteger subscriptionCount = new AtomicInteger();
         final AtomicInteger unsubscriptionCount = new AtomicInteger();
-        Observable<Integer> observable = Observable.create(new OnSubscribe<Integer>() {
+        Observable<Integer> observable = Observable.unsafeCreate(new OnSubscribe<Integer>() {
             @Override
             public void call(Subscriber<? super Integer> observer) {
                 subscriptionCount.incrementAndGet();
@@ -528,6 +530,10 @@ public class OnSubscribeRefCountTest {
 
     @Test(timeout = 10000)
     public void testUpstreamErrorAllowsRetry() throws InterruptedException {
+
+        final AtomicReference<Throwable> err1 = new AtomicReference<Throwable>();
+        final AtomicReference<Throwable> err2 = new AtomicReference<Throwable>();
+
         final AtomicInteger intervalSubscribed = new AtomicInteger();
         Observable<String> interval =
                 Observable.interval(200,TimeUnit.MILLISECONDS)
@@ -572,6 +578,11 @@ public class OnSubscribeRefCountTest {
                     public void call(String t1) {
                         System.out.println("Subscriber 1: " + t1);
                     }
+                }, new Action1<Throwable>() {
+                    @Override
+                    public void call(Throwable t) {
+                        err1.set(t);
+                    }
                 });
         Thread.sleep(100);
         interval
@@ -587,11 +598,170 @@ public class OnSubscribeRefCountTest {
                     public void call(String t1) {
                         System.out.println("Subscriber 2: " + t1);
                     }
+                }, new Action1<Throwable>() {
+                    @Override
+                    public void call(Throwable t) {
+                        err2.set(t);
+                    }
                 });
-        
+
         Thread.sleep(1300);
-        
+
         System.out.println(intervalSubscribed.get());
         assertEquals(6, intervalSubscribed.get());
+
+        assertNotNull("First subscriber didn't get the error", err1);
+        assertNotNull("Second subscriber didn't get the error", err2);
+    }
+
+    Observable<Object> source;
+
+    @Test
+    public void replayNoLeak() throws Exception {
+        System.gc();
+        Thread.sleep(100);
+
+        long start = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = Observable.fromCallable(new Callable<Object>() {
+            @Override
+            public Object call() throws Exception {
+                return new byte[100 * 1000 * 1000];
+            }
+        })
+        .replay(1)
+        .refCount();
+
+        source.subscribe();
+
+        System.gc();
+        Thread.sleep(100);
+
+        long after = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = null;
+        assertTrue(String.format("%,3d -> %,3d%n", start, after), start + 20 * 1000 * 1000 > after);
+    }
+
+    @Test
+    public void replayNoLeak2() throws Exception {
+        System.gc();
+        Thread.sleep(100);
+
+        long start = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = Observable.fromCallable(new Callable<Object>() {
+            @Override
+            public Object call() throws Exception {
+                return new byte[100 * 1000 * 1000];
+            }
+        }).concatWith(Observable.never())
+        .replay(1)
+        .refCount();
+
+        Subscription s1 = source.subscribe();
+        Subscription s2 = source.subscribe();
+
+        s1.unsubscribe();
+        s2.unsubscribe();
+
+        s1 = null;
+        s2 = null;
+
+        System.gc();
+        Thread.sleep(100);
+
+        long after = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = null;
+        assertTrue(String.format("%,3d -> %,3d%n", start, after), start + 20 * 1000 * 1000 > after);
+    }
+
+    static final class ExceptionData extends Exception {
+        private static final long serialVersionUID = -6763898015338136119L;
+
+        public final Object data;
+
+        public ExceptionData(Object data) {
+            this.data = data;
+        }
+    }
+
+    @Test
+    public void publishNoLeak() throws Exception {
+        System.gc();
+        Thread.sleep(100);
+
+        long start = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = Observable.fromCallable(new Callable<Object>() {
+            @Override
+            public Object call() throws Exception {
+                throw new ExceptionData(new byte[100 * 1000 * 1000]);
+            }
+        })
+        .publish()
+        .refCount();
+
+        Action1<Throwable> err = Actions.empty();
+        source.subscribe(Actions.empty(), err);
+
+        System.gc();
+        Thread.sleep(100);
+
+        long after = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = null;
+        assertTrue(String.format("%,3d -> %,3d%n", start, after), start + 20 * 1000 * 1000 > after);
+    }
+
+    @Test
+    public void publishNoLeak2() throws Exception {
+        System.gc();
+        Thread.sleep(100);
+
+        long start = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = Observable.fromCallable(new Callable<Object>() {
+            @Override
+            public Object call() throws Exception {
+                return new byte[100 * 1000 * 1000];
+            }
+        }).concatWith(Observable.never())
+        .publish()
+        .refCount();
+
+        Subscription s1 = source.test(0);
+        Subscription s2 = source.test(0);
+
+        s1.unsubscribe();
+        s2.unsubscribe();
+
+        s1 = null;
+        s2 = null;
+
+        System.gc();
+        Thread.sleep(100);
+
+        long after = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+
+        source = null;
+        assertTrue(String.format("%,3d -> %,3d%n", start, after), start + 20 * 1000 * 1000 > after);
+    }
+
+    @Test
+    public void replayIsUnsubscribed() {
+        ConnectableObservable<Integer> co = Observable.just(1)
+        .replay();
+
+        assertTrue(((Subscription)co).isUnsubscribed());
+
+        Subscription s = co.connect();
+
+        assertFalse(((Subscription)co).isUnsubscribed());
+
+        s.unsubscribe();
+
+        assertTrue(((Subscription)co).isUnsubscribed());
     }
 }

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -37,6 +37,7 @@ import rx.Subscriber;
 import rx.Subscription;
 import rx.exceptions.TestException;
 import rx.observables.ConnectableObservable;
+import rx.observers.TestSubscriber;
 import rx.schedulers.TestScheduler;
 
 public class OnSubscribeTimerTest {
@@ -233,7 +234,7 @@ public class OnSubscribeTimerTest {
     @Test
     public void testOnceObserverThrows() {
         Observable<Long> source = Observable.timer(100, TimeUnit.MILLISECONDS, scheduler);
-        
+
         source.subscribe(new Subscriber<Long>() {
 
             @Override
@@ -251,9 +252,9 @@ public class OnSubscribeTimerTest {
                 observer.onCompleted();
             }
         });
-        
+
         scheduler.advanceTimeBy(1, TimeUnit.SECONDS);
-        
+
         verify(observer).onError(any(TestException.class));
         verify(observer, never()).onNext(anyLong());
         verify(observer, never()).onCompleted();
@@ -261,9 +262,9 @@ public class OnSubscribeTimerTest {
     @Test
     public void testPeriodicObserverThrows() {
         Observable<Long> source = Observable.interval(100, 100, TimeUnit.MILLISECONDS, scheduler);
-        
+
         InOrder inOrder = inOrder(observer);
-        
+
         source.subscribe(new Subscriber<Long>() {
 
             @Override
@@ -284,12 +285,52 @@ public class OnSubscribeTimerTest {
                 observer.onCompleted();
             }
         });
-        
+
         scheduler.advanceTimeBy(1, TimeUnit.SECONDS);
-        
+
         inOrder.verify(observer).onNext(0L);
         inOrder.verify(observer).onError(any(TestException.class));
         inOrder.verifyNoMoreInteractions();
         verify(observer, never()).onCompleted();
+    }
+
+    @Test
+    public void timerInterval() {
+        @SuppressWarnings("deprecation")
+        Observable<Long> w = Observable.timer(1, 1, TimeUnit.SECONDS, scheduler);
+        Subscription sub = w.subscribe(observer);
+
+        verify(observer, never()).onNext(0L);
+        verify(observer, never()).onCompleted();
+        verify(observer, never()).onError(any(Throwable.class));
+
+        scheduler.advanceTimeTo(2, TimeUnit.SECONDS);
+
+        InOrder inOrder = inOrder(observer);
+        inOrder.verify(observer, times(1)).onNext(0L);
+        inOrder.verify(observer, times(1)).onNext(1L);
+        inOrder.verify(observer, never()).onNext(2L);
+        verify(observer, never()).onCompleted();
+        verify(observer, never()).onError(any(Throwable.class));
+
+        sub.unsubscribe();
+        scheduler.advanceTimeTo(4, TimeUnit.SECONDS);
+        verify(observer, never()).onNext(2L);
+        verify(observer, never()).onCompleted();
+        verify(observer, never()).onError(any(Throwable.class));
+    }
+
+    @Test
+    public void timerIntervalDefaultScheduler() {
+        @SuppressWarnings("deprecation")
+        Observable<Long> source = Observable.timer(1, 1, TimeUnit.MILLISECONDS).take(100);
+
+        TestSubscriber<Long> ts = TestSubscriber.create();
+        source.subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValueCount(100);
+        ts.assertNoErrors();
+        ts.assertCompleted();
     }
 }

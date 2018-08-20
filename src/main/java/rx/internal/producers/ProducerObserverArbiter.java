@@ -20,6 +20,7 @@ import java.util.*;
 import rx.*;
 import rx.Observer;
 import rx.exceptions.*;
+import rx.internal.operators.BackpressureUtils;
 
 /**
  * Producer that serializes any event emission with requesting and producer changes.
@@ -31,31 +32,31 @@ import rx.exceptions.*;
  */
 public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
     final Subscriber<? super T> child;
-     
+
     boolean emitting;
-     
+
     List<T> queue;
-    
+
     Producer currentProducer;
     long requested;
-    
+
     long missedRequested;
     Producer missedProducer;
     Object missedTerminal;
-    
+
     volatile boolean hasError;
-    
+
     static final Producer NULL_PRODUCER = new Producer() {
         @Override
         public void request(long n) {
-            
+            // deliberately ignored
         }
     };
-     
+
     public ProducerObserverArbiter(Subscriber<? super T> child) {
         this.child = child;
     }
-     
+
     @Override
     public void onNext(T t) {
         synchronized (this) {
@@ -68,16 +69,17 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
                 q.add(t);
                 return;
             }
+            emitting = true;
         }
         boolean skipFinal = false;
         try {
             child.onNext(t);
-            
+
             long r = requested;
             if (r != Long.MAX_VALUE) {
                 requested = r - 1;
             }
-            
+
             emitLoop();
             skipFinal = true;
         } finally {
@@ -88,7 +90,7 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
             }
         }
     }
-     
+
     @Override
     public void onError(Throwable e) {
         boolean emit;
@@ -107,7 +109,7 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
             hasError = true;
         }
     }
-    
+
     @Override
     public void onCompleted() {
         synchronized (this) {
@@ -119,7 +121,7 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
         }
         child.onCompleted();
     }
-    
+
     @Override
     public void request(long n) {
         if (n < 0) {
@@ -135,6 +137,7 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
             }
             emitting = true;
         }
+        Producer p = currentProducer;
         boolean skipFinal = false;
         try {
             long r = requested;
@@ -143,12 +146,7 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
                 u = Long.MAX_VALUE;
             }
             requested = u;
-            
-            Producer p = currentProducer;
-            if (p != null) {
-                p.request(n);
-            }
-            
+
             emitLoop();
             skipFinal = true;
         } finally {
@@ -158,8 +156,11 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
                 }
             }
         }
+        if (p != null) {
+            p.request(n);
+        }
     }
-    
+
     public void setProducer(Producer p) {
         synchronized (this) {
             if (emitting) {
@@ -169,12 +170,9 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
             emitting = true;
         }
         boolean skipFinal = false;
+        currentProducer = p;
+        long r = requested;
         try {
-            currentProducer = p;
-            long r = requested;
-            if (p != null && r != 0) {
-                p.request(r);
-            }
             emitLoop();
             skipFinal = true;
         } finally {
@@ -184,10 +182,16 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
                 }
             }
         }
+        if (p != null && r != 0) {
+            p.request(r);
+        }
     }
-    
+
     void emitLoop() {
         final Subscriber<? super T> c = child;
+
+        long toRequest = 0L;
+        Producer requestFrom = null;
 
         outer:
         for (;;) {
@@ -195,6 +199,7 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
             Producer localProducer;
             Object localTerminal;
             List<T> q;
+            boolean quit = false;
             synchronized (this) {
                 localRequested = missedRequested;
                 localProducer = missedProducer;
@@ -203,13 +208,21 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
                 if (localRequested == 0L && localProducer == null && q == null
                         && localTerminal == null) {
                     emitting = false;
-                    return;
+                    quit = true;
+                } else {
+                    missedRequested = 0L;
+                    missedProducer = null;
+                    queue = null;
+                    missedTerminal = null;
                 }
-                missedRequested = 0L;
-                missedProducer = null;
-                queue = null;
-                missedTerminal = null;
             }
+            if (quit) {
+                if (toRequest != 0L && requestFrom != null) {
+                    requestFrom.request(toRequest);
+                }
+                return;
+            }
+
             boolean empty = q == null || q.isEmpty();
             if (localTerminal != null) {
                 if (localTerminal != Boolean.TRUE) {
@@ -266,13 +279,15 @@ public final class ProducerObserverArbiter<T> implements Producer, Observer<T> {
                 } else {
                     currentProducer = localProducer;
                     if (r != 0L) {
-                        localProducer.request(r);
+                        toRequest = BackpressureUtils.addCap(toRequest, r);
+                        requestFrom = localProducer;
                     }
                 }
             } else {
                 Producer p = currentProducer;
                 if (p != null && localRequested != 0L) {
-                    p.request(localRequested);
+                    toRequest = BackpressureUtils.addCap(toRequest, localRequested);
+                    requestFrom = p;
                 }
             }
         }

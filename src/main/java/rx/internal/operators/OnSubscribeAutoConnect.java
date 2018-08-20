@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,9 +17,8 @@ package rx.internal.operators;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Subscriber;
-import rx.Subscription;
 import rx.functions.Action1;
 import rx.observables.ConnectableObservable;
 import rx.observers.Subscribers;
@@ -30,12 +29,14 @@ import rx.observers.Subscribers;
  *
  * @param <T> the value type of the chain
  */
-public final class OnSubscribeAutoConnect<T> implements OnSubscribe<T> {
+@SuppressWarnings("serial")
+public final class OnSubscribeAutoConnect<T> extends AtomicInteger implements OnSubscribe<T> {
+    // AtomicInteger aspect of `this` represents the number of clients
+
     final ConnectableObservable<? extends T> source;
     final int numberOfSubscribers;
     final Action1<? super Subscription> connection;
-    final AtomicInteger clients;
-    
+
     public OnSubscribeAutoConnect(ConnectableObservable<? extends T> source,
             int numberOfSubscribers,
             Action1<? super Subscription> connection) {
@@ -45,12 +46,12 @@ public final class OnSubscribeAutoConnect<T> implements OnSubscribe<T> {
         this.source = source;
         this.numberOfSubscribers = numberOfSubscribers;
         this.connection = connection;
-        this.clients = new AtomicInteger();
     }
     @Override
     public void call(Subscriber<? super T> child) {
         source.unsafeSubscribe(Subscribers.wrap(child));
-        if (clients.incrementAndGet() == numberOfSubscribers) {
+        //this.get() represents the number of clients
+        if (this.incrementAndGet() == numberOfSubscribers) {
             source.connect(connection);
         }
     }

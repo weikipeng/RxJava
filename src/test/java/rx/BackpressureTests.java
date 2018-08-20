@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -41,7 +41,7 @@ public class BackpressureTests {
     public void doAfterTest() {
         TestObstructionDetection.checkObstruction();
     }
-    
+
     @Test
     public void testObserveOn() {
         int NUM = (int) (RxRingBuffer.SIZE * 2.1);
@@ -96,7 +96,7 @@ public class BackpressureTests {
         assertEquals(NUM, ts.getOnNextEvents().size());
         // either one can starve the other, but neither should be capable of doing more than 5 batches (taking 4.1)
         // TODO is it possible to make this deterministic rather than one possibly starving the other?
-        // benjchristensen => In general I'd say it's not worth trying to make it so, as "fair" algoritms generally take a performance hit
+        // benjchristensen => In general I'd say it's not worth trying to make it so, as "fair" algorithms generally take a performance hit
         assertTrue(c1.get() < RxRingBuffer.SIZE * 5);
         assertTrue(c2.get() < RxRingBuffer.SIZE * 5);
     }
@@ -118,7 +118,7 @@ public class BackpressureTests {
         assertEquals(NUM, ts.getOnNextEvents().size());
         // either one can starve the other, but neither should be capable of doing more than 5 batches (taking 4.1)
         // TODO is it possible to make this deterministic rather than one possibly starving the other?
-        // benjchristensen => In general I'd say it's not worth trying to make it so, as "fair" algoritms generally take a performance hit
+        // benjchristensen => In general I'd say it's not worth trying to make it so, as "fair" algorithms generally take a performance hit
         assertTrue(c1.get() < RxRingBuffer.SIZE * 5);
         assertTrue(c2.get() < RxRingBuffer.SIZE * 5);
     }
@@ -133,7 +133,7 @@ public class BackpressureTests {
             int NUM = (int) (RxRingBuffer.SIZE * 4.1);
             AtomicInteger c1 = new AtomicInteger();
             AtomicInteger c2 = new AtomicInteger();
-            
+
             TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
             Observable<Integer> merged = Observable.merge(
                     incrementingIntegers(c1).subscribeOn(Schedulers.computation()),
@@ -146,7 +146,7 @@ public class BackpressureTests {
             assertEquals(NUM, ts.getOnNextEvents().size());
         }
     }
-    
+
     @Test
     public void testMergeAsyncThenObserveOn() {
         int NUM = (int) (RxRingBuffer.SIZE * 4.1);
@@ -164,7 +164,7 @@ public class BackpressureTests {
         assertEquals(NUM, ts.getOnNextEvents().size());
         // either one can starve the other, but neither should be capable of doing more than 5 batches (taking 4.1)
         // TODO is it possible to make this deterministic rather than one possibly starving the other?
-        // benjchristensen => In general I'd say it's not worth trying to make it so, as "fair" algoritms generally take a performance hit
+        // benjchristensen => In general I'd say it's not worth trying to make it so, as "fair" algorithms generally take a performance hit
         // akarnokd => run this in a loop over 10k times and never saw values get as high as 7*SIZE, but since observeOn delays the unsubscription non-deterministically, the test will remain unreliable
         assertTrue(c1.get() < RxRingBuffer.SIZE * 7);
         assertTrue(c2.get() < RxRingBuffer.SIZE * 7);
@@ -192,7 +192,7 @@ public class BackpressureTests {
     }
 
     @Test
-    @Ignore // the test is non-deterministic and can't be made deterministic
+    @Ignore("The test is non-deterministic and can't be made deterministic")
     public void testFlatMapAsync() {
         int NUM = (int) (RxRingBuffer.SIZE * 2.1);
         AtomicInteger c = new AtomicInteger();
@@ -445,7 +445,7 @@ public class BackpressureTests {
     public void testOnBackpressureDrop() {
         long t = System.currentTimeMillis();
         for (int i = 0; i < 100; i++) {
-            // stop the test if we are getting close to the timeout because slow machines 
+            // stop the test if we are getting close to the timeout because slow machines
             // may not get through 100 iterations
             if (System.currentTimeMillis() - t > TimeUnit.SECONDS.toMillis(9)) {
                 break;
@@ -494,7 +494,7 @@ public class BackpressureTests {
             .map(SLOW_PASS_THRU).take(NUM).subscribe(ts);
             ts.awaitTerminalEvent();
             ts.assertNoErrors();
-            
+
             List<Integer> onNextEvents = ts.getOnNextEvents();
             Integer lastEvent = onNextEvents.get(NUM - 1);
             System.out.println(testName.getMethodName() + " => Received: " + onNextEvents.size() + " Passed: " + passCount.get() + " Dropped: " + dropCount.get() + "  Emitted: " + emitCount.get() + " Last value: " + lastEvent);
@@ -584,7 +584,7 @@ public class BackpressureTests {
 
     /**
      * A synchronous Observable that will emit incrementing integers as requested.
-     * 
+     *
      * @param counter
      * @return
      */
@@ -593,14 +593,14 @@ public class BackpressureTests {
     }
 
     private static Observable<Integer> incrementingIntegers(final AtomicInteger counter, final ConcurrentLinkedQueue<Thread> threadsSeen) {
-        return Observable.create(new OnSubscribe<Integer>() {
+        return Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
             final AtomicLong requested = new AtomicLong();
 
             @Override
             public void call(final Subscriber<? super Integer> s) {
                 s.setProducer(new Producer() {
-                    int i = 0;
+                    int i;
 
                     @Override
                     public void request(long n) {
@@ -632,14 +632,14 @@ public class BackpressureTests {
 
     /**
      * Incrementing int without backpressure.
-     * 
+     *
      * @param counter
      * @return
      */
     private static Observable<Integer> firehose(final AtomicInteger counter) {
-        return Observable.create(new OnSubscribe<Integer>() {
+        return Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
-            int i = 0;
+            int i;
 
             @Override
             public void call(final Subscriber<? super Integer> s) {

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import rx.Scheduler;
 import rx.Subscription;
 import rx.functions.Action0;
+import rx.internal.schedulers.SchedulePeriodicHelper;
+import rx.internal.schedulers.SchedulePeriodicHelper.NowNanoSupplier;
 import rx.subscriptions.BooleanSubscription;
 import rx.subscriptions.Subscriptions;
 
@@ -31,17 +33,21 @@ import rx.subscriptions.Subscriptions;
  * advancing the clock at whatever pace you choose.
  */
 public class TestScheduler extends Scheduler {
-    private final Queue<TimedAction> queue = new PriorityQueue<TimedAction>(11, new CompareActionsByTime());
-    private static long counter = 0;
+    final Queue<TimedAction> queue = new PriorityQueue<TimedAction>(11, new CompareActionsByTime());
 
-    private static final class TimedAction {
+    static long counter;
 
-        private final long time;
-        private final Action0 action;
-        private final Worker scheduler;
+    // Storing time in nanoseconds internally.
+    long time;
+
+    static final class TimedAction {
+
+        final long time;
+        final Action0 action;
+        final Worker scheduler;
         private final long count = counter++; // for differentiating tasks at same time
 
-        private TimedAction(Worker scheduler, long time, Action0 action) {
+        TimedAction(Worker scheduler, long time, Action0 action) {
             this.time = time;
             this.action = action;
             this.scheduler = scheduler;
@@ -53,19 +59,17 @@ public class TestScheduler extends Scheduler {
         }
     }
 
-    private static class CompareActionsByTime implements Comparator<TimedAction> {
+    static final class CompareActionsByTime implements Comparator<TimedAction> {
+
         @Override
         public int compare(TimedAction action1, TimedAction action2) {
             if (action1.time == action2.time) {
-                return Long.valueOf(action1.count).compareTo(Long.valueOf(action2.count));
+                return action1.count < action2.count ? -1 : ((action1.count > action2.count) ? 1 : 0);
             } else {
-                return Long.valueOf(action1.time).compareTo(Long.valueOf(action2.time));
+                return action1.time < action2.time ? -1 : ((action1.time > action2.time) ? 1 : 0);
             }
         }
     }
-
-    // Storing time in nanoseconds internally.
-    private long time;
 
     @Override
     public long now() {
@@ -128,7 +132,7 @@ public class TestScheduler extends Scheduler {
         return new InnerTestScheduler();
     }
 
-    private final class InnerTestScheduler extends Worker {
+    final class InnerTestScheduler extends Worker implements NowNanoSupplier {
 
         private final BooleanSubscription s = new BooleanSubscription();
 
@@ -171,8 +175,19 @@ public class TestScheduler extends Scheduler {
         }
 
         @Override
+        public Subscription schedulePeriodically(Action0 action, long initialDelay, long period, TimeUnit unit) {
+            return SchedulePeriodicHelper.schedulePeriodically(this,
+                    action, initialDelay, period, unit, this);
+        }
+
+        @Override
         public long now() {
             return TestScheduler.this.now();
+        }
+
+        @Override
+        public long nowNanos() {
+            return TestScheduler.this.time;
         }
 
     }

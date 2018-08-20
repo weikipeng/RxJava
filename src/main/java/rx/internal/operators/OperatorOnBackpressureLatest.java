@@ -17,28 +17,30 @@ package rx.internal.operators;
 
 import java.util.concurrent.atomic.*;
 
-import rx.Observable.Operator;
 import rx.*;
+import rx.Observable.Operator;
 
 /**
  * An operator which drops all but the last received value in case the downstream
  * doesn't request more.
+ * @param <T> the value type
  */
 public final class OperatorOnBackpressureLatest<T> implements Operator<T, T> {
     /** Holds a singleton instance initialized on class-loading. */
     static final class Holder {
         static final OperatorOnBackpressureLatest<Object> INSTANCE = new OperatorOnBackpressureLatest<Object>();
     }
-    
+
     /**
      * Returns a singleton instance of the OnBackpressureLatest operator since it is stateless.
+     * @param <T> the value type
      * @return the single instanceof OperatorOnBackpressureLatest
      */
     @SuppressWarnings("unchecked")
     public static <T> OperatorOnBackpressureLatest<T> instance() {
         return (OperatorOnBackpressureLatest<T>)Holder.INSTANCE;
     }
-    
+
     @Override
     public Subscriber<? super T> call(Subscriber<? super T> child) {
         final LatestEmitter<T> producer = new LatestEmitter<T>(child);
@@ -50,7 +52,7 @@ public final class OperatorOnBackpressureLatest<T> implements Operator<T, T> {
         return parent;
     }
     /**
-     * A terminatable producer which emits the latest items on request.
+     * A terminable producer which emits the latest items on request.
      * @param <T>
      */
     static final class LatestEmitter<T> extends AtomicLong implements Producer, Subscription, Observer<T> {
@@ -71,7 +73,7 @@ public final class OperatorOnBackpressureLatest<T> implements Operator<T, T> {
         public LatestEmitter(Subscriber<? super T> child) {
             this.child = child;
             this.value = new AtomicReference<Object>(EMPTY);
-            this.lazySet(NOT_REQUESTED); // not 
+            this.lazySet(NOT_REQUESTED); // not
         }
         @Override
         public void request(long n) {
@@ -122,7 +124,7 @@ public final class OperatorOnBackpressureLatest<T> implements Operator<T, T> {
                 getAndSet(Long.MIN_VALUE);
             }
         }
-        
+
         @Override
         public void onNext(T t) {
             value.lazySet(t); // emit's synchronized block does a full release
@@ -194,14 +196,14 @@ public final class OperatorOnBackpressureLatest<T> implements Operator<T, T> {
     static final class LatestSubscriber<T> extends Subscriber<T> {
         private final LatestEmitter<T> producer;
 
-        private LatestSubscriber(LatestEmitter<T> producer) {
+        LatestSubscriber(LatestEmitter<T> producer) {
             this.producer = producer;
         }
 
         @Override
         public void onStart() {
             // don't run until the child actually requested to avoid synchronous problems
-            request(0); 
+            request(0);
         }
 
         @Override

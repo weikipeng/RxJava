@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,23 +16,18 @@
 package rx.internal.operators;
 
 import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.*;
 
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 import org.mockito.InOrder;
 
-import rx.Observable;
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Observer;
-import rx.Scheduler;
-import rx.Subscriber;
 import rx.exceptions.TestException;
 import rx.functions.Action0;
+import rx.observers.*;
 import rx.schedulers.TestScheduler;
 import rx.subjects.PublishSubject;
 
@@ -52,7 +47,7 @@ public class OperatorThrottleFirstTest {
 
     @Test
     public void testThrottlingWithCompleted() {
-        Observable<String> source = Observable.create(new OnSubscribe<String>() {
+        Observable<String> source = Observable.unsafeCreate(new OnSubscribe<String>() {
             @Override
             public void call(Subscriber<? super String> observer) {
                 publishNext(observer, 100, "one");    // publish as it's first
@@ -79,7 +74,7 @@ public class OperatorThrottleFirstTest {
 
     @Test
     public void testThrottlingWithError() {
-        Observable<String> source = Observable.create(new OnSubscribe<String>() {
+        Observable<String> source = Observable.unsafeCreate(new OnSubscribe<String>() {
             @Override
             public void call(Subscriber<? super String> observer) {
                 Exception error = new TestException();
@@ -157,5 +152,82 @@ public class OperatorThrottleFirstTest {
         inOrder.verify(observer).onNext(7);
         inOrder.verify(observer).onCompleted();
         inOrder.verifyNoMoreInteractions();
+    }
+
+    @Test
+    public void timed() {
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Observable.range(1, 2).throttleFirst(1, TimeUnit.SECONDS).subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void throttleWithoutAdvancingTimeOfTestScheduler() {
+        @SuppressWarnings("unchecked")
+        Observer<Integer> observer = mock(Observer.class);
+        TestScheduler s = new TestScheduler();
+        PublishSubject<Integer> o = PublishSubject.create();
+        o.throttleFirst(500, TimeUnit.MILLISECONDS, s).subscribe(observer);
+
+        // send events without calling advanceTimeBy/To
+        o.onNext(1); // deliver
+        o.onNext(2); // skip
+        o.onNext(3); // skip
+        o.onCompleted();
+
+        verify(observer).onNext(1);
+        verify(observer).onCompleted();
+        verifyNoMoreInteractions(observer);
+    }
+
+    @Test
+    public void throttleWithTestSchedulerTimeOfZero() {
+        @SuppressWarnings("unchecked")
+        Observer<Integer> observer = mock(Observer.class);
+        TestScheduler s = new TestScheduler();
+        PublishSubject<Integer> o = PublishSubject.create();
+        o.throttleFirst(500, TimeUnit.MILLISECONDS, s).subscribe(observer);
+
+        s.advanceTimeBy(0, TimeUnit.MILLISECONDS);
+
+        // send events while TestScheduler's time is 0
+        o.onNext(1); // deliver
+        o.onNext(2); // skip
+        o.onNext(3); // skip
+        o.onCompleted();
+
+        verify(observer).onNext(1);
+        verify(observer).onCompleted();
+        verifyNoMoreInteractions(observer);
+    }
+
+    @Test
+    public void nowDrift() {
+        TestScheduler s = new TestScheduler();
+        s.advanceTimeBy(2, TimeUnit.SECONDS);
+
+        PublishSubject<Integer> o = PublishSubject.create();
+
+        AssertableSubscriber<Integer> as = o.throttleFirst(500, TimeUnit.MILLISECONDS, s)
+        .test();
+
+        o.onNext(1);
+        s.advanceTimeBy(100, TimeUnit.MILLISECONDS);
+        o.onNext(2);
+        s.advanceTimeBy(100, TimeUnit.MILLISECONDS);
+        o.onNext(3);
+        s.advanceTimeBy(-1000, TimeUnit.MILLISECONDS);
+        o.onNext(4);
+        s.advanceTimeBy(100, TimeUnit.MILLISECONDS);
+        o.onNext(5);
+        o.onCompleted();
+
+        as.assertResult(1, 4);
     }
 }

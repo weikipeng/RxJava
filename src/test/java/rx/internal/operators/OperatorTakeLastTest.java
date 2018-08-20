@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,28 +17,24 @@ package rx.internal.operators;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.*;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.*;
 
-import org.junit.Test;
+import org.junit.*;
 import org.mockito.InOrder;
 
 import rx.Observable;
 import rx.Observer;
+import rx.Scheduler.Worker;
 import rx.Subscriber;
-import rx.functions.Func1;
-import rx.internal.util.RxRingBuffer;
-import rx.internal.util.UtilityFunctions;
+import rx.functions.*;
+import rx.internal.util.*;
 import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
+import rx.subjects.PublishSubject;
 
 public class OperatorTakeLastTest {
 
@@ -137,7 +133,7 @@ public class OperatorTakeLastTest {
 
     private Func1<Integer, Integer> newSlowProcessor() {
         return new Func1<Integer, Integer>() {
-            int c = 0;
+            int c;
 
             @Override
             public Integer call(Integer i) {
@@ -267,7 +263,7 @@ public class OperatorTakeLastTest {
             }
         });
     }
-    
+
     @Test
     public void testUnsubscribeTakesEffectEarlyOnFastPath() {
         final AtomicInteger count = new AtomicInteger();
@@ -295,8 +291,8 @@ public class OperatorTakeLastTest {
         });
         assertEquals(1,count.get());
     }
-    
-    @Test(timeout=10000)
+
+    @Test(timeout = 10000)
     public void testRequestOverflow() {
         final List<Integer> list = new ArrayList<Integer>();
         Observable.range(1, 100).takeLast(50).subscribe(new Subscriber<Integer>() {
@@ -305,22 +301,153 @@ public class OperatorTakeLastTest {
             public void onStart() {
                 request(2);
             }
-            
+
             @Override
             public void onCompleted() {
-                
+
             }
 
             @Override
             public void onError(Throwable e) {
-                
+
             }
 
             @Override
             public void onNext(Integer t) {
                 list.add(t);
-                request(Long.MAX_VALUE-1);
+                request(Long.MAX_VALUE - 1);
             }});
         assertEquals(50, list.size());
     }
+
+    @Test(timeout = 30000) // original could get into an infinite loop
+    public void completionRequestRace() {
+        Worker w = Schedulers.computation().createWorker();
+        try {
+            final int n = 1000;
+            for (int i = 0; i < 25000; i++) {
+                if (i % 1000 == 0) {
+                    System.out.println("completionRequestRace >> " + i);
+                }
+                PublishSubject<Integer> ps = PublishSubject.create();
+                final TestSubscriber<Integer> ts = new TestSubscriber<Integer>(0);
+
+                ps.takeLast(n).subscribe(ts);
+
+                for (int j = 0; j < n; j++) {
+                    ps.onNext(j);
+                }
+
+                final AtomicBoolean go = new AtomicBoolean();
+
+                w.schedule(new Action0() {
+                    @Override
+                    public void call() {
+                        while (!go.get()) { }
+                        ts.requestMore(n + 1);
+                    }
+                });
+
+                go.set(true);
+                ps.onCompleted();
+
+                ts.awaitTerminalEvent(1, TimeUnit.SECONDS);
+
+                ts.assertValueCount(n);
+                ts.assertNoErrors();
+                ts.assertCompleted();
+
+                List<Integer> list = ts.getOnNextEvents();
+                for (int j = 0; j < n; j++) {
+                    Assert.assertEquals(j, list.get(j).intValue());
+                }
+            }
+        } finally {
+            w.unsubscribe();
+        }
+    }
+
+    @Test
+    public void nullElements() {
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>(0);
+
+        Observable.from(new Integer[] { 1, null, 2}).takeLast(4)
+        .subscribe(ts);
+
+        ts.assertNoValues();
+        ts.assertNoErrors();
+        ts.assertNotCompleted();
+
+        ts.requestMore(1);
+
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertNotCompleted();
+
+        ts.requestMore(2);
+
+        ts.assertValues(1, null, 2);
+        ts.assertCompleted();
+        ts.assertNoErrors();
+    }
+
+    @Test
+    public void takeLastBuffer() {
+        TestSubscriber<List<Integer>> ts = TestSubscriber.create();
+
+        Observable.range(1, 5).takeLastBuffer(1).subscribe(ts);
+
+        ts.assertValue(Arrays.asList(5));
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void takeLastBufferTimed() {
+        TestSubscriber<List<Integer>> ts = TestSubscriber.create();
+
+        Observable.range(1, 5).takeLastBuffer(5, TimeUnit.SECONDS).subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(Arrays.asList(1, 2, 3, 4, 5));
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void takeLastBufferTimedSized() {
+        TestSubscriber<List<Integer>> ts = TestSubscriber.create();
+
+        Observable.range(1, 5).takeLastBuffer(1, 5, TimeUnit.SECONDS).subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(Arrays.asList(5));
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void takeLastBufferTimedIO() {
+        TestSubscriber<List<Integer>> ts = TestSubscriber.create();
+
+        Observable.range(1, 5).takeLastBuffer(5, TimeUnit.SECONDS, Schedulers.io()).subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(Arrays.asList(1, 2, 3, 4, 5));
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void takeLastBufferTimedSizedIO() {
+        TestSubscriber<List<Integer>> ts = TestSubscriber.create();
+
+        Observable.range(1, 5).takeLastBuffer(1, 5, TimeUnit.SECONDS, Schedulers.io()).subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(Arrays.asList(5));
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
 }

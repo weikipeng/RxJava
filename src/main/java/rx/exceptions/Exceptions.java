@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,14 +18,19 @@ package rx.exceptions;
 import java.util.*;
 
 import rx.Observer;
-import rx.annotations.Experimental;
+import rx.SingleSubscriber;
 
 /**
- * @warn javadoc class description missing
+ * Utility class with methods to wrap checked exceptions and
+ * manage fatal and regular exception delivery.
  */
 public final class Exceptions {
-    private Exceptions() {
 
+    private static final int MAX_DEPTH = 25;
+
+    /** Utility class, no instances. */
+    private Exceptions() {
+        throw new IllegalStateException("No instances!");
     }
 
     /**
@@ -38,9 +43,9 @@ public final class Exceptions {
     public static RuntimeException propagate(Throwable t) {
         /*
          * The return type of RuntimeException is a trick for code to be like this:
-         * 
+         *
          * throw Exceptions.propagate(e);
-         * 
+         *
          * Even though nothing will return and throw via that 'throw', it allows the code to look like it
          * so it's easy to read and understand that it will always result in a throw.
          */
@@ -49,7 +54,7 @@ public final class Exceptions {
         } else if (t instanceof Error) {
             throw (Error) t;
         } else {
-            throw new RuntimeException(t);
+            throw new RuntimeException(t); // NOPMD
         }
     }
     /**
@@ -58,7 +63,7 @@ public final class Exceptions {
      * <ul>
      * <li>{@link OnErrorNotImplementedException}</li>
      * <li>{@link OnErrorFailedException}</li>
-     * <li>{@code StackOverflowError}</li>
+     * <li>{@link OnCompletedFailedException}</li>
      * <li>{@code VirtualMachineError}</li>
      * <li>{@code ThreadDeath}</li>
      * <li>{@code LinkageError}</li>
@@ -76,17 +81,12 @@ public final class Exceptions {
         if (t instanceof OnErrorNotImplementedException) {
             throw (OnErrorNotImplementedException) t;
         } else if (t instanceof OnErrorFailedException) {
-            Throwable cause = t.getCause();
-            if (cause instanceof RuntimeException) {
-                throw (RuntimeException) cause;
-            } else {
-                throw (OnErrorFailedException) t;
-            }
+            throw (OnErrorFailedException) t;
+        } else if (t instanceof OnCompletedFailedException) {
+            throw (OnCompletedFailedException) t;
         }
         // values here derived from https://github.com/ReactiveX/RxJava/issues/748#issuecomment-32471495
-        else if (t instanceof StackOverflowError) {
-            throw (StackOverflowError) t;
-        } else if (t instanceof VirtualMachineError) {
+        else if (t instanceof VirtualMachineError) {
             throw (VirtualMachineError) t;
         } else if (t instanceof ThreadDeath) {
             throw (ThreadDeath) t;
@@ -94,8 +94,6 @@ public final class Exceptions {
             throw (LinkageError) t;
         }
     }
-
-    private static final int MAX_DEPTH = 25;
 
     /**
      * Adds a {@code Throwable} to a causality-chain of Throwables, as an additional cause (if it does not
@@ -125,7 +123,7 @@ public final class Exceptions {
         // we now have 'e' as the last in the chain
         try {
             e.initCause(cause);
-        } catch (Throwable t) {
+        } catch (Throwable t) { // NOPMD
             // ignore
             // the javadocs say that some Throwables (depending on how they're made) will never
             // let me call initCause without blowing up even if it returns null
@@ -157,48 +155,72 @@ public final class Exceptions {
      * @param exceptions the collection of exceptions. If null or empty, no exception is thrown.
      * If the collection contains a single exception, that exception is either thrown as-is or wrapped into a
      * CompositeException. Multiple exceptions are wrapped into a CompositeException.
+     * @since 1.1.0
      */
-    @Experimental
     public static void throwIfAny(List<? extends Throwable> exceptions) {
         if (exceptions != null && !exceptions.isEmpty()) {
             if (exceptions.size() == 1) {
                 Throwable t = exceptions.get(0);
-                // had to manually inline propagate because some tests attempt StackOverflowError 
+                // had to manually inline propagate because some tests attempt StackOverflowError
                 // and can't handle it with the stack space remaining
                 if (t instanceof RuntimeException) {
                     throw (RuntimeException) t;
                 } else if (t instanceof Error) {
                     throw (Error) t;
                 } else {
-                    throw new RuntimeException(t);
+                    throw new RuntimeException(t); // NOPMD
                 }
             }
-            throw new CompositeException(
-                    "Multiple exceptions", exceptions);
+            throw new CompositeException(exceptions);
         }
     }
-    
+
     /**
      * Forwards a fatal exception or reports it along with the value
      * caused it to the given Observer.
      * @param t the exception
      * @param o the observer to report to
      * @param value the value that caused the exception
+     * @since 1.3
      */
-    @Experimental
     public static void throwOrReport(Throwable t, Observer<?> o, Object value) {
         Exceptions.throwIfFatal(t);
         o.onError(OnErrorThrowable.addValueAsLastCause(t, value));
     }
+
+    /**
+     * Forwards a fatal exception or reports it along with the value
+     * caused it to the given SingleSubscriber.
+     * @param t the exception
+     * @param o the observer to report to
+     * @param value the value that caused the exception
+     * @since 1.3
+     */
+    public static void throwOrReport(Throwable t, SingleSubscriber<?> o, Object value) {
+        Exceptions.throwIfFatal(t);
+        o.onError(OnErrorThrowable.addValueAsLastCause(t, value));
+    }
+
     /**
      * Forwards a fatal exception or reports it to the given Observer.
      * @param t the exception
      * @param o the observer to report to
-     * @param value the value that caused the exception
+     * @since 1.3
      */
-    @Experimental
     public static void throwOrReport(Throwable t, Observer<?> o) {
         Exceptions.throwIfFatal(t);
         o.onError(t);
+    }
+
+    /**
+     * Forwards a fatal exception or reports it to the given Observer.
+     *
+     * @param throwable the exception.
+     * @param subscriber the subscriber to report to.
+     * @since 1.3
+     */
+    public static void throwOrReport(Throwable throwable, SingleSubscriber<?> subscriber) {
+        Exceptions.throwIfFatal(throwable);
+        subscriber.onError(throwable);
     }
 }

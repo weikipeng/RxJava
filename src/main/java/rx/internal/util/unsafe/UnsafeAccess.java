@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,38 +17,47 @@ package rx.internal.util.unsafe;
 
 import java.lang.reflect.Field;
 
+import rx.internal.util.SuppressAnimalSniffer;
 import sun.misc.Unsafe;
 
 /**
  * All use of this class MUST first check that UnsafeAccess.isUnsafeAvailable() == true
  * otherwise NPEs will happen in environments without "suc.misc.Unsafe" such as Android.
+ * <p>
+ * Note that you can force RxJava to not use Unsafe API by setting any value to System Property
+ * {@code rx.unsafe-disable}.
  */
+@SuppressAnimalSniffer
 public final class UnsafeAccess {
+
+    public static final Unsafe UNSAFE;
+
+    private static final boolean DISABLED_BY_USER = System.getProperty("rx.unsafe-disable") != null;
+
     private UnsafeAccess() {
         throw new IllegalStateException("No instances!");
     }
 
-    public static final Unsafe UNSAFE;
     static {
         Unsafe u = null;
         try {
             /*
              * This mechanism for getting UNSAFE originally from:
-             * 
+             *
              * Original License: https://github.com/JCTools/JCTools/blob/master/LICENSE
              * Original location: https://github.com/JCTools/JCTools/blob/master/jctools-core/src/main/java/org/jctools/util/UnsafeAccess.java
              */
             Field field = Unsafe.class.getDeclaredField("theUnsafe");
             field.setAccessible(true);
             u = (Unsafe) field.get(null);
-        } catch (Throwable e) {
+        } catch (Throwable e) { // NOPMD
             // do nothing, hasUnsafe() will return false
         }
         UNSAFE = u;
     }
 
-    public static final boolean isUnsafeAvailable() {
-        return UNSAFE != null;
+    public static boolean isUnsafeAvailable() {
+        return UNSAFE != null && !DISABLED_BY_USER;
     }
 
     /*
@@ -59,8 +68,9 @@ public final class UnsafeAccess {
         for (;;) {
             int current = UNSAFE.getIntVolatile(obj, offset);
             int next = current + 1;
-            if (UNSAFE.compareAndSwapInt(obj, offset, current, next))
+            if (UNSAFE.compareAndSwapInt(obj, offset, current, next)) {
                 return current;
+            }
         }
     }
 
@@ -68,23 +78,25 @@ public final class UnsafeAccess {
         for (;;) {
             int current = UNSAFE.getIntVolatile(obj, offset);
             int next = current + n;
-            if (UNSAFE.compareAndSwapInt(obj, offset, current, next))
+            if (UNSAFE.compareAndSwapInt(obj, offset, current, next)) {
                 return current;
+            }
         }
     }
 
     public static int getAndSetInt(Object obj, long offset, int newValue) {
         for (;;) {
             int current = UNSAFE.getIntVolatile(obj, offset);
-            if (UNSAFE.compareAndSwapInt(obj, offset, current, newValue))
+            if (UNSAFE.compareAndSwapInt(obj, offset, current, newValue)) {
                 return current;
+            }
         }
     }
 
     public static boolean compareAndSwapInt(Object obj, long offset, int expected, int newValue) {
         return UNSAFE.compareAndSwapInt(obj, offset, expected, newValue);
     }
-    
+
     /**
      * Returns the address of the specific field on the class and
      * wraps a NoSuchFieldException into an internal error.

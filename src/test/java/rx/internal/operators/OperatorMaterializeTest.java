@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,9 +29,12 @@ import org.junit.Test;
 import rx.Notification;
 import rx.Observable;
 import rx.Subscriber;
+import rx.TestUtil;
+import rx.functions.Action0;
 import rx.functions.Action1;
 import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
+import rx.subjects.PublishSubject;
 
 public class OperatorMaterializeTest {
 
@@ -43,7 +46,7 @@ public class OperatorMaterializeTest {
                 "three");
 
         TestObserver Observer = new TestObserver();
-        Observable<Notification<String>> m = Observable.create(o1).materialize();
+        Observable<Notification<String>> m = Observable.unsafeCreate(o1).materialize();
         m.subscribe(Observer);
 
         try {
@@ -69,7 +72,7 @@ public class OperatorMaterializeTest {
         final TestAsyncErrorObservable o1 = new TestAsyncErrorObservable("one", "two", "three");
 
         TestObserver Observer = new TestObserver();
-        Observable<Notification<String>> m = Observable.create(o1).materialize();
+        Observable<Notification<String>> m = Observable.unsafeCreate(o1).materialize();
         m.subscribe(Observer);
 
         try {
@@ -94,7 +97,7 @@ public class OperatorMaterializeTest {
     public void testMultipleSubscribes() throws InterruptedException, ExecutionException {
         final TestAsyncErrorObservable o = new TestAsyncErrorObservable("one", "two", null, "three");
 
-        Observable<Notification<String>> m = Observable.create(o).materialize();
+        Observable<Notification<String>> m = Observable.unsafeCreate(o).materialize();
 
         assertEquals(3, m.toList().toBlocking().toFuture().get().size());
         assertEquals(3, m.toList().toBlocking().toFuture().get().size());
@@ -124,7 +127,7 @@ public class OperatorMaterializeTest {
         ts.assertValueCount(4);
         ts.assertCompleted();
     }
-    
+
     @Test
     public void testBackpressureNoErrorAsync() throws InterruptedException {
         TestSubscriber<Notification<Integer>> ts = TestSubscriber.create(0);
@@ -187,11 +190,11 @@ public class OperatorMaterializeTest {
         ts.assertNoValues();
         ts.assertTerminalEvent();
     }
-    
+
     @Test
     public void testUnsubscribeJustBeforeCompletionNotificationShouldPreventThatNotificationArriving() {
         TestSubscriber<Notification<Integer>> ts = TestSubscriber.create(0);
-        IllegalArgumentException ex = new IllegalArgumentException();
+
         Observable.<Integer>empty().materialize()
                 .subscribe(ts);
         ts.assertNoValues();
@@ -201,10 +204,37 @@ public class OperatorMaterializeTest {
         ts.assertUnsubscribed();
     }
 
+    @Test
+    public void testConcurrency() {
+        for (int i = 0; i < 1000; i++) {
+            final TestSubscriber<Notification<Integer>> ts = TestSubscriber.create(0);
+            final PublishSubject<Integer> ps = PublishSubject.create();
+            Action0 publishAction = new Action0() {
+                @Override
+                public void call() {
+                    ps.onCompleted();
+                }
+            };
+
+            Action0 requestAction = new Action0() {
+                @Override
+                public void call() {
+                    ts.requestMore(1);
+                }
+            };
+
+            ps.materialize().subscribe(ts);
+            TestUtil.race(publishAction, requestAction);
+            ts.assertValueCount(1);
+            ts.assertTerminalEvent();
+            ts.assertNoErrors();
+        }
+    }
+
     private static class TestObserver extends Subscriber<Notification<String>> {
 
-        boolean onCompleted = false;
-        boolean onError = false;
+        boolean onCompleted;
+        boolean onError;
         List<Notification<String>> notifications = new Vector<Notification<String>>();
 
         @Override

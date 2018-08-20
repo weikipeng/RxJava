@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,8 +24,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.*;
 
 import rx.*;
-import rx.Observable.OnSubscribe;
 import rx.Observable;
+import rx.Observable.OnSubscribe;
 import rx.Observer;
 import rx.functions.*;
 import rx.observers.TestSubscriber;
@@ -52,7 +52,7 @@ public class ReplaySubjectConcurrencyTest {
 
             @Override
             public void run() {
-                Observable.create(new OnSubscribe<Long>() {
+                Observable.unsafeCreate(new OnSubscribe<Long>() {
 
                     @Override
                     public void call(Subscriber<? super Long> o) {
@@ -154,14 +154,27 @@ public class ReplaySubjectConcurrencyTest {
         slowThread.join();
     }
 
+//    @Test
+    public void testReplaySubjectConcurrentSubscriptionsLoop() throws Exception {
+        for (int i = 0; i < 50; i++) {
+            System.out.println(i + " --------------------------------------------------------------- ");
+            testReplaySubjectConcurrentSubscriptions();
+        }
+    }
+
     @Test
     public void testReplaySubjectConcurrentSubscriptions() throws InterruptedException {
         final ReplaySubject<Long> replay = ReplaySubject.create();
+
+        concurrencyTest(replay);
+    }
+
+    public static void concurrencyTest(final ReplaySubject<Long> replay) throws InterruptedException {
         Thread source = new Thread(new Runnable() {
 
             @Override
             public void run() {
-                Observable.create(new OnSubscribe<Long>() {
+                Observable.unsafeCreate(new OnSubscribe<Long>() {
 
                     @Override
                     public void call(Subscriber<? super Long> o) {
@@ -209,13 +222,23 @@ public class ReplaySubjectConcurrencyTest {
         for (Thread t : threads) {
             t.join();
         }
+        StringBuilder sb = new StringBuilder();
 
         // assert all threads got the same results
         List<Long> sums = new ArrayList<Long>();
         for (List<Long> values : listOfListsOfValues) {
             long v = 0;
-            for (long l : values) {
+            if (values.size() != 10000) {
+                sb.append("A list is longer than expected: " + values.size() + "\n");
+            }
+            int i = 0;
+            for (Long l : values) {
+                if (l == null) {
+                    sb.append("Element at  " + i + " is null\n");
+                    break;
+                }
                 v += l;
+                i++;
             }
             sums.add(v);
         }
@@ -225,16 +248,15 @@ public class ReplaySubjectConcurrencyTest {
         for (long l : sums) {
             if (l != expected) {
                 success = false;
-                System.out.println("FAILURE => Expected " + expected + " but got: " + l);
+                sb.append("FAILURE => Expected " + expected + " but got: " + l + "\n");
             }
         }
 
         if (success) {
             System.out.println("Success! " + sums.size() + " each had the same sum of " + expected);
         } else {
-            throw new RuntimeException("Concurrency Bug");
+            Assert.fail(sb.toString());
         }
-
     }
 
     /**
@@ -298,7 +320,7 @@ public class ReplaySubjectConcurrencyTest {
         }
 
     }
-    
+
     /**
      * https://github.com/ReactiveX/RxJava/issues/1147
      */
@@ -326,7 +348,7 @@ public class ReplaySubjectConcurrencyTest {
         @Override
         public void run() {
             try {
-                // a timeout exception will happen if we don't get a terminal state 
+                // a timeout exception will happen if we don't get a terminal state
                 String v = subject.timeout(2000, TimeUnit.MILLISECONDS).toBlocking().single();
                 value.set(v);
             } catch (Exception e) {
@@ -344,10 +366,10 @@ public class ReplaySubjectConcurrencyTest {
                     System.out.println(i);
                 }
                 final ReplaySubject<Object> rs = ReplaySubject.create();
-                
-                final CountDownLatch finish = new CountDownLatch(1); 
-                final CountDownLatch start = new CountDownLatch(1); 
-                
+
+                final CountDownLatch finish = new CountDownLatch(1);
+                final CountDownLatch start = new CountDownLatch(1);
+
                 worker.schedule(new Action0() {
                     @Override
                     public void call() {
@@ -359,33 +381,33 @@ public class ReplaySubjectConcurrencyTest {
                         rs.onNext(1);
                     }
                 });
-                
+
                 final AtomicReference<Object> o = new AtomicReference<Object>();
-                
+
                 rs.subscribeOn(s).observeOn(Schedulers.io())
                 .subscribe(new Observer<Object>() {
-    
+
                     @Override
                     public void onCompleted() {
                         o.set(-1);
                         finish.countDown();
                     }
-    
+
                     @Override
                     public void onError(Throwable e) {
                         o.set(e);
                         finish.countDown();
                     }
-    
+
                     @Override
                     public void onNext(Object t) {
                         o.set(t);
                         finish.countDown();
                     }
-                    
+
                 });
                 start.countDown();
-                
+
                 if (!finish.await(5, TimeUnit.SECONDS)) {
                     System.out.println(o.get());
                     System.out.println(rs.hasObservers());
@@ -400,7 +422,7 @@ public class ReplaySubjectConcurrencyTest {
                             rs.onCompleted();
                         }
                     });
-                    
+
                 }
             }
         } finally {
@@ -411,7 +433,7 @@ public class ReplaySubjectConcurrencyTest {
     public void testConcurrentSizeAndHasAnyValue() throws InterruptedException {
         final ReplaySubject<Object> rs = ReplaySubject.create();
         final CyclicBarrier cb = new CyclicBarrier(2);
-        
+
         Thread t = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -446,14 +468,14 @@ public class ReplaySubjectConcurrencyTest {
                 Assert.fail("Size decreased! " + lastSize + " -> " + size);
             }
             if ((size > 0) && !hasAny) {
-                Assert.fail("hasAnyValue reports emptyness but size doesn't");
+                Assert.fail("hasAnyValue reports emptiness but size doesn't");
             }
             if (size > values.length) {
                 Assert.fail("Got fewer values than size! " + size + " -> " + values.length);
             }
             lastSize = size;
         }
-        
+
         t.join();
     }
 }

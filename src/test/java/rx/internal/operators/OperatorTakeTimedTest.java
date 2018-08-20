@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,9 +26,11 @@ import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.mockito.InOrder;
 
-import rx.Observable;
-import rx.Observer;
+import rx.*;
 import rx.exceptions.TestException;
+import rx.functions.Func1;
+import rx.observers.TestSubscriber;
+import rx.plugins.RxJavaHooks;
 import rx.schedulers.TestScheduler;
 import rx.subjects.PublishSubject;
 
@@ -130,5 +132,43 @@ public class OperatorTakeTimedTest {
 
         verify(o, never()).onNext(4);
         verify(o, never()).onError(any(TestException.class));
+    }
+
+    @Test
+    public void takeDefaultScheduler() {
+        final TestScheduler scheduler = new TestScheduler();
+
+        RxJavaHooks.setOnComputationScheduler(new Func1<Scheduler, Scheduler>() {
+            @Override
+            public Scheduler call(Scheduler t) {
+                return scheduler;
+            }
+        });
+
+        try {
+            TestSubscriber<Integer> ts = TestSubscriber.create();
+
+            PublishSubject<Integer> ps = PublishSubject.create();
+
+            ps.take(1, TimeUnit.SECONDS).subscribe(ts);
+
+            ps.onNext(1);
+            ps.onNext(2);
+            ps.onNext(3);
+
+            scheduler.advanceTimeBy(1, TimeUnit.SECONDS);
+
+            ps.onNext(4);
+            ps.onNext(5);
+
+            scheduler.advanceTimeBy(1, TimeUnit.SECONDS);
+            ps.onCompleted();
+
+            ts.assertValues(1, 2, 3);
+            ts.assertNoErrors();
+            ts.assertCompleted();
+        } finally {
+            RxJavaHooks.reset();
+        }
     }
 }

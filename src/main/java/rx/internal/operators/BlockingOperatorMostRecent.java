@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,8 +15,7 @@
  */
 package rx.internal.operators;
 
-import java.util.Iterator;
-import java.util.NoSuchElementException;
+import java.util.*;
 
 import rx.Observable;
 import rx.Subscriber;
@@ -35,6 +34,7 @@ public final class BlockingOperatorMostRecent {
     /**
      * Returns an {@code Iterable} that always returns the item most recently emitted by the {@code Observable}.
      *
+     * @param <T> the value type
      * @param source
      *            the source {@code Observable}
      * @param initialValue
@@ -45,6 +45,7 @@ public final class BlockingOperatorMostRecent {
      */
     public static <T> Iterable<T> mostRecent(final Observable<? extends T> source, final T initialValue) {
         return new Iterable<T>() {
+            @SuppressWarnings("unchecked")
             @Override
             public Iterator<T> iterator() {
                 MostRecentObserver<T> mostRecentObserver = new MostRecentObserver<T>(initialValue);
@@ -53,66 +54,67 @@ public final class BlockingOperatorMostRecent {
                  * Subscribe instead of unsafeSubscribe since this is the final subscribe in the chain
                  * since it is for BlockingObservable.
                  */
-                source.subscribe(mostRecentObserver);
+                ((Observable<T>)source).subscribe(mostRecentObserver);
 
                 return mostRecentObserver.getIterable();
             }
         };
     }
 
-    private static final class MostRecentObserver<T> extends Subscriber<T> {
-        final NotificationLite<T> nl = NotificationLite.instance();
+    static final class MostRecentObserver<T> extends Subscriber<T> {
         volatile Object value;
-        
-        private MostRecentObserver(T value) {
-            this.value = nl.next(value);
+
+        MostRecentObserver(T value) {
+            this.value = NotificationLite.next(value);
         }
 
         @Override
         public void onCompleted() {
-            value = nl.completed();
+            value = NotificationLite.completed();
         }
 
         @Override
         public void onError(Throwable e) {
-            value = nl.error(e);
+            value = NotificationLite.error(e);
         }
 
         @Override
         public void onNext(T args) {
-            value = nl.next(args);
+            value = NotificationLite.next(args);
         }
 
         /**
          * The {@link Iterator} return is not thread safe. In other words don't call {@link Iterator#hasNext()} in one
          * thread expect {@link Iterator#next()} called from a different thread to work.
-         * @return
+         * @return the Iterator instance
          */
         public Iterator<T> getIterable() {
             return new Iterator<T>() {
                 /**
                  * buffer to make sure that the state of the iterator doesn't change between calling hasNext() and next().
                  */
-                private Object buf = null;
+                private Object buf;
 
                 @Override
                 public boolean hasNext() {
                     buf = value;
-                    return !nl.isCompleted(buf);
+                    return !NotificationLite.isCompleted(buf);
                 }
 
                 @Override
                 public T next() {
                     try {
                         // if hasNext wasn't called before calling next.
-                        if (buf == null)
+                        if (buf == null) {
                             buf = value;
-                        if (nl.isCompleted(buf))
-                            throw new NoSuchElementException();
-                        if (nl.isError(buf)) {
-                            throw Exceptions.propagate(nl.getError(buf));
                         }
-                        return nl.getValue(buf);
+                        if (NotificationLite.isCompleted(buf)) {
+                            throw new NoSuchElementException();
+                        }
+                        if (NotificationLite.isError(buf)) {
+                            throw Exceptions.propagate(NotificationLite.getError(buf));
+                        }
+                        return NotificationLite.getValue(buf);
                     }
                     finally {
                         buf = null;

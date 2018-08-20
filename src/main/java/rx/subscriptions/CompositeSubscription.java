@@ -15,6 +15,9 @@
  */
 package rx.subscriptions;
 
+import rx.Subscription;
+import rx.exceptions.Exceptions;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -22,18 +25,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import rx.Subscription;
-import rx.exceptions.*;
-
 /**
  * Subscription that represents a group of Subscriptions that are unsubscribed together.
+ * <p>
+ * All methods of this class are thread-safe.
  */
 public final class CompositeSubscription implements Subscription {
 
     private Set<Subscription> subscriptions;
     private volatile boolean unsubscribed;
 
+    /**
+     * Constructs an empty Composite subscription.
+     */
     public CompositeSubscription() {
+        // start empty
     }
 
     public CompositeSubscription(final Subscription... subscriptions) {
@@ -52,7 +58,7 @@ public final class CompositeSubscription implements Subscription {
      * well.
      *
      * @param s
-     *          the {@link Subscription} to add
+     *         the {@link Subscription} to add
      */
     public void add(final Subscription s) {
         if (s.isUnsubscribed()) {
@@ -74,15 +80,47 @@ public final class CompositeSubscription implements Subscription {
     }
 
     /**
+     * Adds collection of {@link Subscription} to this {@code CompositeSubscription} if the
+     * {@code CompositeSubscription} is not yet unsubscribed. If the {@code CompositeSubscription} <em>is</em>
+     * unsubscribed, {@code addAll} will indicate this by explicitly unsubscribing all {@code Subscription} in collection as
+     * well.
+     *
+     * @param subscriptions
+     *         the collection of {@link Subscription} to add
+     */
+    public void addAll(final Subscription... subscriptions) {
+        if (!unsubscribed) {
+            synchronized (this) {
+                if (!unsubscribed) {
+                    if (this.subscriptions == null) {
+                        this.subscriptions = new HashSet<Subscription>(subscriptions.length);
+                    }
+
+                    for (Subscription s : subscriptions) {
+                        if (!s.isUnsubscribed()) {
+                            this.subscriptions.add(s);
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+
+        for (Subscription s : subscriptions) {
+            s.unsubscribe();
+        }
+    }
+
+    /**
      * Removes a {@link Subscription} from this {@code CompositeSubscription}, and unsubscribes the
      * {@link Subscription}.
      *
      * @param s
-     *          the {@link Subscription} to remove
+     *         the {@link Subscription} to remove
      */
     public void remove(final Subscription s) {
         if (!unsubscribed) {
-            boolean unsubscribe = false;
+            boolean unsubscribe;
             synchronized (this) {
                 if (unsubscribed || subscriptions == null) {
                     return;
@@ -98,12 +136,12 @@ public final class CompositeSubscription implements Subscription {
 
     /**
      * Unsubscribes any subscriptions that are currently part of this {@code CompositeSubscription} and remove
-     * them from the {@code CompositeSubscription} so that the {@code CompositeSubscription} is empty and in
-     * an unoperative state.
+     * them from the {@code CompositeSubscription} so that the {@code CompositeSubscription} is empty and
+     * able to manage new subscriptions.
      */
     public void clear() {
         if (!unsubscribed) {
-            Collection<Subscription> unsubscribe = null;
+            Collection<Subscription> unsubscribe;
             synchronized (this) {
                 if (unsubscribed || subscriptions == null) {
                     return;
@@ -116,10 +154,15 @@ public final class CompositeSubscription implements Subscription {
         }
     }
 
+    /**
+     * Unsubscribes itself and all inner subscriptions.
+     * <p>After call of this method, new {@code Subscription}s added to {@link CompositeSubscription}
+     * will be unsubscribed immediately.
+     */
     @Override
     public void unsubscribe() {
         if (!unsubscribed) {
-            Collection<Subscription> unsubscribe = null;
+            Collection<Subscription> unsubscribe;
             synchronized (this) {
                 if (unsubscribed) {
                     return;

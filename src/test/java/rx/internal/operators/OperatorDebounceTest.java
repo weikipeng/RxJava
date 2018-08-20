@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -57,7 +57,7 @@ public class OperatorDebounceTest {
 
     @Test
     public void testDebounceWithCompleted() {
-        Observable<String> source = Observable.create(new Observable.OnSubscribe<String>() {
+        Observable<String> source = Observable.unsafeCreate(new Observable.OnSubscribe<String>() {
             @Override
             public void call(Subscriber<? super String> observer) {
                 publishNext(observer, 100, "one");    // Should be skipped since "two" will arrive before the timeout expires.
@@ -82,7 +82,7 @@ public class OperatorDebounceTest {
 
     @Test
     public void testDebounceNeverEmits() {
-        Observable<String> source = Observable.create(new Observable.OnSubscribe<String>() {
+        Observable<String> source = Observable.unsafeCreate(new Observable.OnSubscribe<String>() {
             @Override
             public void call(Subscriber<? super String> observer) {
                 // all should be skipped since they are happening faster than the 200ms timeout
@@ -111,7 +111,7 @@ public class OperatorDebounceTest {
 
     @Test
     public void testDebounceWithError() {
-        Observable<String> source = Observable.create(new Observable.OnSubscribe<String>() {
+        Observable<String> source = Observable.unsafeCreate(new Observable.OnSubscribe<String>() {
             @Override
             public void call(Subscriber<? super String> observer) {
                 Exception error = new TestException();
@@ -247,17 +247,17 @@ public class OperatorDebounceTest {
     @Test
     public void debounceTimedLastIsNotLost() {
         PublishSubject<Integer> source = PublishSubject.create();
-        
+
         @SuppressWarnings("unchecked")
         Observer<Object> o = mock(Observer.class);
 
         source.debounce(100, TimeUnit.MILLISECONDS, scheduler).subscribe(o);
-        
+
         source.onNext(1);
         source.onCompleted();
-        
+
         scheduler.advanceTimeBy(1, TimeUnit.SECONDS);
-        
+
         verify(o).onNext(1);
         verify(o).onCompleted();
         verify(o, never()).onError(any(Throwable.class));
@@ -279,7 +279,7 @@ public class OperatorDebounceTest {
         Observer<Object> o = mock(Observer.class);
 
         source.debounce(debounceSel).subscribe(o);
-        
+
         source.onNext(1);
         source.onCompleted();
 
@@ -304,5 +304,18 @@ public class OperatorDebounceTest {
         subscriber.assertReceivedOnNext(Arrays.asList(2));
         subscriber.assertTerminalEvent();
         subscriber.assertNoErrors();
+    }
+
+    @Test
+    public void debounceDefaultScheduler() throws Exception {
+
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+
+        Observable.range(1, 1000).debounce(1, TimeUnit.SECONDS).subscribe(ts);
+
+        ts.awaitTerminalEventAndUnsubscribeOnTimeout(5, TimeUnit.SECONDS);
+        ts.assertValue(1000);
+        ts.assertNoErrors();
+        ts.assertCompleted();
     }
 }

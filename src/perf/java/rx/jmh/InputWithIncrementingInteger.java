@@ -44,7 +44,7 @@ public abstract class InputWithIncrementingInteger {
         final int size = getSize();
         observable = Observable.range(0, size);
 
-        firehose = Observable.create(new OnSubscribe<Integer>() {
+        firehose = Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
             @Override
             public void call(Subscriber<? super Integer> s) {
@@ -59,22 +59,22 @@ public abstract class InputWithIncrementingInteger {
             @Override
             public Iterator<Integer> iterator() {
                 return new Iterator<Integer>() {
-                    int i = 0;
-                    
+                    int i;
+
                     @Override
                     public boolean hasNext() {
                         return i < size;
                     }
-                    
+
                     @Override
                     public Integer next() {
                         Blackhole.consumeCPU(10);
                         return i++;
                     }
-                    
+
                     @Override
                     public void remove() {
-                        
+
                     }
                 };
             }

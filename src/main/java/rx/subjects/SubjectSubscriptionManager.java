@@ -17,7 +17,7 @@ package rx.subjects;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.atomic.AtomicReference;
 
 import rx.Observable.OnSubscribe;
 import rx.Observer;
@@ -33,15 +33,11 @@ import rx.subscriptions.Subscriptions;
  * @param <T> the source and return value type
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
-/* package */final class SubjectSubscriptionManager<T> implements OnSubscribe<T> {
-    /** Contains the unsubscription flag and the array of active subscribers. */
-    volatile State<T> state = State.EMPTY;
-    static final AtomicReferenceFieldUpdater<SubjectSubscriptionManager, State> STATE_UPDATER
-            = AtomicReferenceFieldUpdater.newUpdater(SubjectSubscriptionManager.class, State.class, "state");
+/* package */final class SubjectSubscriptionManager<T> extends AtomicReference<SubjectSubscriptionManager.State<T>> implements OnSubscribe<T> {
+    /** */
+    private static final long serialVersionUID = 6035251036011671568L;
     /** Stores the latest value or the terminal value for some Subjects. */
     volatile Object latest;
-    static final AtomicReferenceFieldUpdater<SubjectSubscriptionManager, Object> LATEST_UPDATER
-            = AtomicReferenceFieldUpdater.newUpdater(SubjectSubscriptionManager.class, Object.class, "latest");
     /** Indicates that the subject is active (cheaper than checking the state).*/
     boolean active = true;
     /** Action called when a new subscriber subscribes but before it is added to the state. */
@@ -50,8 +46,11 @@ import rx.subscriptions.Subscriptions;
     Action1<SubjectObserver<T>> onAdded = Actions.empty();
     /** Action called when the subscriber wants to subscribe to a terminal state. */
     Action1<SubjectObserver<T>> onTerminated = Actions.empty();
-    /** The notification lite. */
-    public final NotificationLite<T> nl = NotificationLite.instance();
+
+    public SubjectSubscriptionManager() {
+        super(State.EMPTY);
+    }
+
     @Override
     public void call(final Subscriber<? super T> child) {
         SubjectObserver<T> bo = new SubjectObserver<T>(child);
@@ -71,18 +70,18 @@ import rx.subscriptions.Subscriptions;
                 remove(bo);
             }
         }));
-    }    
+    }
     /** Set the latest NotificationLite value. */
-    void set(Object value) {
+    void setLatest(Object value) {
         latest = value;
     }
     /** @return Retrieve the latest NotificationLite value */
-    Object get() {
+    Object getLatest() {
         return latest;
     }
     /** @return the array of active subscribers, don't write into the array! */
     SubjectObserver<T>[] observers() {
-        return state.observers;
+        return get().observers;
     }
     /**
      * Try to atomically add a SubjectObserver to the active state.
@@ -91,13 +90,13 @@ import rx.subscriptions.Subscriptions;
      */
     boolean add(SubjectObserver<T> o) {
         do {
-            State oldState = state;
+            State oldState = get();
             if (oldState.terminated) {
                 onTerminated.call(o);
                 return false;
             }
             State newState = oldState.add(o);
-            if (STATE_UPDATER.compareAndSet(this, oldState, newState)) {
+            if (compareAndSet(oldState, newState)) {
                 onAdded.call(o);
                 return true;
             }
@@ -109,12 +108,12 @@ import rx.subscriptions.Subscriptions;
      */
     void remove(SubjectObserver<T> o) {
         do {
-            State oldState = state;
+            State oldState = get();
             if (oldState.terminated) {
                 return;
             }
             State newState = oldState.remove(o);
-            if (newState == oldState || STATE_UPDATER.compareAndSet(this, oldState, newState)) {
+            if (newState == oldState || compareAndSet(oldState, newState)) {
                 return;
             }
         } while (true);
@@ -125,8 +124,8 @@ import rx.subscriptions.Subscriptions;
      * @return the array of SubjectObservers, don't write into the array!
      */
     SubjectObserver<T>[] next(Object n) {
-        set(n);
-        return state.observers;
+        setLatest(n);
+        return get().observers;
     }
     /**
      * Atomically set the terminal NotificationLite value (which could be any of the 3),
@@ -135,14 +134,14 @@ import rx.subscriptions.Subscriptions;
      * @return the last active SubjectObservers
      */
     SubjectObserver<T>[] terminate(Object n) {
-        set(n);
+        setLatest(n);
         active = false;
 
-        State<T> oldState = state;
+        State<T> oldState = get();
         if (oldState.terminated) {
             return State.NO_OBSERVERS;
         }
-        return STATE_UPDATER.getAndSet(this, State.TERMINATED).observers;
+        return getAndSet(State.TERMINATED).observers;
     }
 
     /** State-machine representing the termination state and active SubjectObservers. */
@@ -152,7 +151,7 @@ import rx.subscriptions.Subscriptions;
         static final SubjectObserver[] NO_OBSERVERS = new SubjectObserver[0];
         static final State TERMINATED = new State(true, NO_OBSERVERS);
         static final State EMPTY = new State(false, NO_OBSERVERS);
-        
+
         public State(boolean terminated, SubjectObserver[] observers) {
             this.terminated = terminated;
             this.observers = observers;
@@ -196,7 +195,7 @@ import rx.subscriptions.Subscriptions;
             return new State<T>(terminated, b);
         }
     }
-    
+
     /**
      * Observer wrapping the actual Subscriber and providing various
      * emission facilities.
@@ -204,7 +203,7 @@ import rx.subscriptions.Subscriptions;
      */
     protected static final class SubjectObserver<T> implements Observer<T> {
         /** The actual Observer. */
-        final Observer<? super T> actual;
+        final Subscriber<? super T> actual;
         /** Was the emitFirst run? Guarded by this. */
         boolean first = true;
         /** Guarded by this. */
@@ -213,10 +212,10 @@ import rx.subscriptions.Subscriptions;
         List<Object> queue;
         /* volatile */boolean fastPath;
         /** Indicate that the observer has caught up. */
-        protected volatile boolean caughtUp;
+        volatile boolean caughtUp;
         /** Indicate where the observer is at replaying. */
         private volatile Object index;
-        public SubjectObserver(Observer<? super T> actual) {
+        public SubjectObserver(Subscriber<? super T> actual) {
             this.actual = actual;
         }
         @Override
@@ -237,7 +236,7 @@ import rx.subscriptions.Subscriptions;
          * @param n the NotificationLite value
          * @param nl the type-appropriate notification lite object
          */
-        protected void emitNext(Object n, final NotificationLite<T> nl) {
+        void emitNext(Object n) {
             if (!fastPath) {
                 synchronized (this) {
                     first = false;
@@ -251,15 +250,14 @@ import rx.subscriptions.Subscriptions;
                 }
                 fastPath = true;
             }
-            nl.accept(actual, n);
+            NotificationLite.accept(actual, n);
         }
         /**
          * Tries to emit a NotificationLite value as the first
          * value and drains the queue as long as possible.
-         * @param n the NotificationLite value
          * @param nl the type-appropriate notification lite object
          */
-        protected void emitFirst(Object n, final NotificationLite<T> nl) {
+        void emitFirst(Object n) {
             synchronized (this) {
                 if (!first || emitting) {
                     return;
@@ -268,7 +266,7 @@ import rx.subscriptions.Subscriptions;
                 emitting = n != null;
             }
             if (n != null) {
-                emitLoop(null, n, nl);
+                emitLoop(null, n);
             }
         }
         /**
@@ -277,19 +275,19 @@ import rx.subscriptions.Subscriptions;
          * @param current the current content to emit
          * @param nl the type-appropriate notification lite object
          */
-        protected void emitLoop(List<Object> localQueue, Object current, final NotificationLite<T> nl) {
+        void emitLoop(List<Object> localQueue, Object current) {
             boolean once = true;
             boolean skipFinal = false;
             try {
                 do {
                     if (localQueue != null) {
                         for (Object n : localQueue) {
-                            accept(n, nl);
+                            accept(n);
                         }
                     }
                     if (once) {
                         once = false;
-                        accept(current, nl);
+                        accept(current);
                     }
                     synchronized (this) {
                         localQueue = queue;
@@ -314,14 +312,14 @@ import rx.subscriptions.Subscriptions;
          * @param n the value to dispatch
          * @param nl the type-appropriate notification lite object
          */
-        protected void accept(Object n, final NotificationLite<T> nl) {
+        void accept(Object n) {
             if (n != null) {
-                nl.accept(actual, n);
+                NotificationLite.accept(actual, n);
             }
         }
-        
+
         /** @return the actual Observer. */
-        protected Observer<? super T> getActual() {
+        Observer<? super T> getActual() {
             return actual;
         }
         /**

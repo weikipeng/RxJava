@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,35 +15,31 @@
  */
 package rx.internal.operators;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import java.util.Arrays;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
-import rx.Observable;
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Scheduler;
-import rx.Subscriber;
-import rx.Subscription;
 import rx.functions.Action0;
-import rx.observers.TestObserver;
+import rx.internal.util.RxThreadFactory;
+import rx.observers.*;
 import rx.schedulers.Schedulers;
 import rx.subscriptions.Subscriptions;
 
 public class OperatorUnsubscribeOnTest {
 
-    @Test
+    @Test(timeout = 1000)
     public void testUnsubscribeWhenSubscribeOnAndUnsubscribeOnAreOnSameThread() throws InterruptedException {
         UIEventLoopScheduler UI_EVENT_LOOP = new UIEventLoopScheduler();
         try {
             final ThreadSubscription subscription = new ThreadSubscription();
             final AtomicReference<Thread> subscribeThread = new AtomicReference<Thread>();
-            Observable<Integer> w = Observable.create(new OnSubscribe<Integer>() {
+            Observable<Integer> w = Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
                 @Override
                 public void call(Subscriber<? super Integer> t1) {
@@ -55,8 +51,12 @@ public class OperatorUnsubscribeOnTest {
                 }
             });
 
-            TestObserver<Integer> observer = new TestObserver<Integer>();
-            w.subscribeOn(UI_EVENT_LOOP).observeOn(Schedulers.computation()).unsubscribeOn(UI_EVENT_LOOP).subscribe(observer);
+            TestSubscriber<Integer> observer = new TestSubscriber<Integer>();
+            w
+            .subscribeOn(UI_EVENT_LOOP)
+            .observeOn(Schedulers.computation())
+            .unsubscribeOn(UI_EVENT_LOOP)
+            .subscribe(observer);
 
             Thread unsubscribeThread = subscription.getThread();
 
@@ -78,13 +78,13 @@ public class OperatorUnsubscribeOnTest {
         }
     }
 
-    @Test
+    @Test(timeout = 1000)
     public void testUnsubscribeWhenSubscribeOnAndUnsubscribeOnAreOnDifferentThreads() throws InterruptedException {
         UIEventLoopScheduler UI_EVENT_LOOP = new UIEventLoopScheduler();
         try {
             final ThreadSubscription subscription = new ThreadSubscription();
             final AtomicReference<Thread> subscribeThread = new AtomicReference<Thread>();
-            Observable<Integer> w = Observable.create(new OnSubscribe<Integer>() {
+            Observable<Integer> w = Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
                 @Override
                 public void call(Subscriber<? super Integer> t1) {
@@ -96,8 +96,12 @@ public class OperatorUnsubscribeOnTest {
                 }
             });
 
-            TestObserver<Integer> observer = new TestObserver<Integer>();
-            w.subscribeOn(Schedulers.newThread()).observeOn(Schedulers.computation()).unsubscribeOn(UI_EVENT_LOOP).subscribe(observer);
+            TestSubscriber<Integer> observer = new TestSubscriber<Integer>();
+            w
+            .subscribeOn(Schedulers.newThread())
+            .observeOn(Schedulers.computation())
+            .unsubscribeOn(UI_EVENT_LOOP)
+            .subscribe(observer);
 
             Thread unsubscribeThread = subscription.getThread();
 
@@ -110,7 +114,10 @@ public class OperatorUnsubscribeOnTest {
 
             System.out.println("unsubscribeThread: " + unsubscribeThread);
             System.out.println("subscribeThread.get(): " + subscribeThread.get());
-            assertTrue(unsubscribeThread == UI_EVENT_LOOP.getThread());
+            Thread uiThread = UI_EVENT_LOOP.getThread();
+            System.out.println("UI_EVENT_LOOP: " + uiThread);
+
+            assertTrue(unsubscribeThread == uiThread);
 
             observer.assertReceivedOnNext(Arrays.asList(1, 2));
             observer.assertTerminalEvent();
@@ -153,23 +160,24 @@ public class OperatorUnsubscribeOnTest {
 
     public static class UIEventLoopScheduler extends Scheduler {
 
-        private final Scheduler.Worker eventLoop;
-        private final Subscription s;
+        private final ExecutorService eventLoop;
+        final Scheduler single;
         private volatile Thread t;
 
         public UIEventLoopScheduler() {
 
-            eventLoop = Schedulers.newThread().createWorker();
-            s = eventLoop;
+            eventLoop = Executors.newSingleThreadExecutor(new RxThreadFactory("Test-EventLoop"));
+
+            single = Schedulers.from(eventLoop);
 
             /*
              * DON'T DO THIS IN PRODUCTION CODE
              */
             final CountDownLatch latch = new CountDownLatch(1);
-            eventLoop.schedule(new Action0() {
+            eventLoop.submit(new Runnable() {
 
                 @Override
-                public void call() {
+                public void run() {
                     t = Thread.currentThread();
                     latch.countDown();
                 }
@@ -181,19 +189,46 @@ public class OperatorUnsubscribeOnTest {
                 throw new RuntimeException("failed to initialize and get inner thread");
             }
         }
-        
+
         @Override
         public Worker createWorker() {
-            return eventLoop;
+            return single.createWorker();
         }
 
         public void shutdown() {
-            s.unsubscribe();
+            eventLoop.shutdownNow();
         }
 
         public Thread getThread() {
             return t;
         }
 
+    }
+
+    @Test
+    public void backpressure() {
+        AssertableSubscriber<Integer> as = Observable.range(1, 10)
+        .unsubscribeOn(Schedulers.trampoline())
+        .test(0);
+
+        as.assertNoValues()
+        .assertNoErrors()
+        .assertNotCompleted();
+
+        as.requestMore(1);
+
+        as.assertValue(1)
+        .assertNoErrors()
+        .assertNotCompleted();
+
+        as.requestMore(3);
+
+        as.assertValues(1, 2, 3, 4)
+        .assertNoErrors()
+        .assertNotCompleted();
+
+        as.requestMore(10);
+
+        as.assertResult(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
     }
 }

@@ -10,13 +10,15 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * Original License: https://github.com/JCTools/JCTools/blob/master/LICENSE
  * Original location: https://github.com/JCTools/JCTools/blob/master/jctools-core/src/main/java/org/jctools/queues/MpmcArrayQueue.java
  */
 package rx.internal.util.unsafe;
 
 import static rx.internal.util.unsafe.UnsafeAccess.UNSAFE;
+
+import rx.internal.util.SuppressAnimalSniffer;
 
 abstract class MpmcArrayQueueL1Pad<E> extends ConcurrentSequencedCircularArrayQueue<E> {
     long p10, p11, p12, p13, p14, p15, p16;
@@ -27,6 +29,7 @@ abstract class MpmcArrayQueueL1Pad<E> extends ConcurrentSequencedCircularArrayQu
     }
 }
 
+@SuppressAnimalSniffer
 abstract class MpmcArrayQueueProducerField<E> extends MpmcArrayQueueL1Pad<E> {
     private final static long P_INDEX_OFFSET = UnsafeAccess.addressOf(MpmcArrayQueueProducerField.class, "producerIndex");
     private volatile long producerIndex;
@@ -53,6 +56,7 @@ abstract class MpmcArrayQueueL2Pad<E> extends MpmcArrayQueueProducerField<E> {
     }
 }
 
+@SuppressAnimalSniffer
 abstract class MpmcArrayQueueConsumerField<E> extends MpmcArrayQueueL2Pad<E> {
     private final static long C_INDEX_OFFSET = UnsafeAccess.addressOf(MpmcArrayQueueConsumerField.class, "consumerIndex");
     private volatile long consumerIndex;
@@ -79,9 +83,9 @@ abstract class MpmcArrayQueueConsumerField<E> extends MpmcArrayQueueL2Pad<E> {
  * algorithm uses an array of structs which should offer nice locality properties but is sadly not possible in
  * Java (waiting on Value Types or similar). The alternative explored here utilizes 2 arrays, one for each
  * field of the struct. There is a further alternative in the experimental project which uses iteration phase
- * markers to achieve the same algo and is closer structurally to the original, but sadly does not perform as
+ * markers to achieve the same algorithm and is closer structurally to the original, but sadly does not perform as
  * well as this implementation.<br>
- * Tradeoffs to keep in mind:
+ * Trade-offs to keep in mind:
  * <ol>
  * <li>Padding for false sharing: counter fields and queue fields are all padded as well as either side of
  * both arrays. We are trading memory to avoid false sharing(active and passive).
@@ -90,10 +94,11 @@ abstract class MpmcArrayQueueConsumerField<E> extends MpmcArrayQueueL2Pad<E> {
  * <li>Power of 2 capacity: Actual elements buffer (and sequence buffer) is the closest power of 2 larger or
  * equal to the requested capacity.
  * </ol>
- * 
+ *
  * @param <E>
  *            type of the element stored in the {@link java.util.Queue}
  */
+@SuppressAnimalSniffer
 public class MpmcArrayQueue<E> extends MpmcArrayQueueConsumerField<E> {
     long p40, p41, p42, p43, p44, p45, p46;
     long p30, p31, p32, p33, p34, p35, p36, p37;

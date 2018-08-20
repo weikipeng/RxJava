@@ -42,14 +42,14 @@ public class SyncOnSubscribePerf {
         SyncOnSubscribePerf perf = new SyncOnSubscribePerf();
         perf.benchSyncOnSubscribe(singleInput);
     }
-    private static class generated {
+    static class generated {
         private static Blackhole _jmh_tryInit_() {
             return new Blackhole();
         }
     }
-    
+
     private static OnSubscribe<Integer> createSyncOnSubscribe(final Iterator<Integer> iterator) {
-        return new SyncOnSubscribe<Void, Integer>(){
+        return new SyncOnSubscribe<Void, Integer>() {
 
             @Override
             protected Void generateState() {
@@ -60,14 +60,14 @@ public class SyncOnSubscribePerf {
             protected Void next(Void state, Observer<? super Integer> observer) {
                 if (iterator.hasNext()) {
                     observer.onNext(iterator.next());
-                }
-                else
+                } else {
                     observer.onCompleted();
-                return null;
                 }
-            };
+                return null;
+            }
+        };
     }
-    
+
 //    @Benchmark
 //  @Group("single")
     public void benchSyncOnSubscribe(final SingleInput input) {
@@ -79,37 +79,13 @@ public class SyncOnSubscribePerf {
     public void benchFromIterable(final SingleInput input) {
         new OnSubscribeFromIterable<Integer>(input.iterable).call(input.newSubscriber());
     }
-    
-//    @Benchmark
-//  @Group("single")
-    public void benchAbstractOnSubscribe(final SingleInput input) {
-        final Iterator<Integer> iterator = input.iterable.iterator();
-        createAbstractOnSubscribe(iterator).call(input.newSubscriber());
-    }
-
-    private AbstractOnSubscribe<Integer, Void> createAbstractOnSubscribe(final Iterator<Integer> iterator) {
-        return new AbstractOnSubscribe<Integer, Void>() {
-            @Override
-            protected void next(rx.observables.AbstractOnSubscribe.SubscriptionState<Integer, Void> state) {
-                if (iterator.hasNext())
-                    state.onNext(iterator.next());
-                else
-                    state.onCompleted();
-            }};
-    }
 
     @Benchmark
 //    @Group("multi")
     public void benchSyncOnSubscribe2(final MultiInput input) {
         createSyncOnSubscribe(input.iterable.iterator()).call(input.newSubscriber());
     }
-    
-//    @Benchmark
-//  @Group("multi")
-    public void benchAbstractOnSubscribe2(final MultiInput input) {
-        createAbstractOnSubscribe(input.iterable.iterator()).call(input.newSubscriber());
-    }
-    
+
     @Benchmark
 //    @Group("multi")
     public void benchFromIterable2(final MultiInput input) {

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,17 +15,10 @@
  */
 package rx.internal.operators;
 
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
-import rx.Observable;
-import rx.Subscriber;
-import rx.Subscription;
+import rx.*;
 
 /**
  * Returns a Future representing the single value emitted by an Observable.
@@ -41,7 +34,7 @@ public final class BlockingOperatorToFuture {
     }
     /**
      * Returns a Future that expects a single item from the observable.
-     * 
+     *
      * @param that
      *            an observable sequence to get a Future for.
      * @param <T>
@@ -54,7 +47,8 @@ public final class BlockingOperatorToFuture {
         final AtomicReference<T> value = new AtomicReference<T>();
         final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
 
-        final Subscription s = that.single().subscribe(new Subscriber<T>() {
+        @SuppressWarnings("unchecked")
+        final Subscription s = ((Observable<T>)that).single().subscribe(new Subscriber<T>() {
 
             @Override
             public void onCompleted() {
@@ -76,7 +70,7 @@ public final class BlockingOperatorToFuture {
 
         return new Future<T>() {
 
-            private volatile boolean cancelled = false;
+            private volatile boolean cancelled;
 
             @Override
             public boolean cancel(boolean mayInterruptIfRunning) {
@@ -118,8 +112,10 @@ public final class BlockingOperatorToFuture {
             }
 
             private T getValue() throws ExecutionException {
-                if (error.get() != null) {
-                    throw new ExecutionException("Observable onError", error.get());
+                final Throwable throwable = error.get();
+
+                if (throwable != null) {
+                    throw new ExecutionException("Observable onError", throwable);
                 } else if (cancelled) {
                     // Contract of Future.get() requires us to throw this:
                     throw new CancellationException("Subscription unsubscribed");

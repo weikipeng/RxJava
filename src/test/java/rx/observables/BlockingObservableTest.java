@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,33 +15,24 @@
  */
 package rx.observables;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import static org.junit.Assert.*;
 
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.junit.*;
+import org.mockito.*;
 
 import rx.Observable;
 import rx.Observable.OnSubscribe;
 import rx.Subscriber;
-import rx.exceptions.TestException;
-import rx.functions.Action0;
-import rx.functions.Action1;
-import rx.functions.Func1;
+import rx.exceptions.*;
+import rx.functions.*;
+import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
 import rx.subscriptions.Subscriptions;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 public class BlockingObservableTest {
 
@@ -268,7 +259,7 @@ public class BlockingObservableTest {
 
     @Test(expected = TestException.class)
     public void testToIterableWithException() {
-        BlockingObservable<String> obs = BlockingObservable.from(Observable.create(new Observable.OnSubscribe<String>() {
+        BlockingObservable<String> obs = BlockingObservable.from(Observable.unsafeCreate(new Observable.OnSubscribe<String>() {
 
             @Override
             public void call(Subscriber<? super String> observer) {
@@ -290,7 +281,7 @@ public class BlockingObservableTest {
     @Test
     public void testForEachWithError() {
         try {
-            BlockingObservable.from(Observable.create(new Observable.OnSubscribe<String>() {
+            BlockingObservable.from(Observable.unsafeCreate(new Observable.OnSubscribe<String>() {
 
                 @Override
                 public void call(final Subscriber<? super String> observer) {
@@ -391,7 +382,7 @@ public class BlockingObservableTest {
     @Test
     public void testSingleOrDefaultUnsubscribe() throws InterruptedException {
         final CountDownLatch unsubscribe = new CountDownLatch(1);
-        Observable<Integer> o = Observable.create(new OnSubscribe<Integer>() {
+        Observable<Integer> o = Observable.unsafeCreate(new OnSubscribe<Integer>() {
             @Override
             public void call(Subscriber<? super Integer> subscriber) {
                 subscriber.add(Subscriptions.create(new Action0() {
@@ -574,7 +565,7 @@ public class BlockingObservableTest {
                 @Override
                 public Iterator<Void> iterator() {
                     return new Iterator<Void>() {
-                        private boolean nextCalled = false;
+                        private boolean nextCalled;
 
                         @Override
                         public boolean hasNext() {
@@ -641,4 +632,137 @@ public class BlockingObservableTest {
 
     }
 
+    @Test
+    public void testRun() {
+        Observable.just(1).observeOn(Schedulers.computation()).toBlocking().subscribe();
+    }
+
+    @Test(expected = TestException.class)
+    public void testRunException() {
+        Observable.error(new TestException()).observeOn(Schedulers.computation()).toBlocking().subscribe();
+    }
+
+    @Test
+    public void testRunIOException() {
+        try {
+            Observable.error(new IOException()).observeOn(Schedulers.computation()).toBlocking().subscribe();
+            fail("No exception thrown");
+        } catch (RuntimeException ex) {
+            if (ex.getCause() instanceof IOException) {
+                return;
+            }
+            fail("Bad exception type: " + ex + ", " + ex.getCause());
+        }
+    }
+
+    @Test
+    public void testSubscriberBackpressure() {
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
+            @Override
+            public void onStart() {
+                request(2);
+            }
+
+            @Override
+            public void onNext(Integer t) {
+                super.onNext(t);
+                unsubscribe();
+            }
+        };
+
+        Observable.range(1, 10).observeOn(Schedulers.computation()).toBlocking().subscribe(ts);
+
+        ts.assertNoErrors();
+        ts.assertNotCompleted();
+        ts.assertValue(1);
+    }
+
+    @Test(expected = OnErrorNotImplementedException.class)
+    public void testOnErrorNotImplemented() {
+        Observable.error(new TestException()).observeOn(Schedulers.computation()).toBlocking().subscribe(Actions.empty());
+    }
+
+    @Test
+    public void testSubscribeCallback1() {
+        final boolean[] valueReceived = { false };
+        Observable.just(1).observeOn(Schedulers.computation()).toBlocking().subscribe(new Action1<Integer>() {
+            @Override
+            public void call(Integer t) {
+                valueReceived[0] = true;
+                assertEquals((Integer)1, t);
+            }
+        });
+
+        assertTrue(valueReceived[0]);
+    }
+
+    @Test
+    public void testSubscribeCallback2() {
+        final boolean[] received = { false };
+        Observable.error(new TestException()).observeOn(Schedulers.computation()).toBlocking()
+        .subscribe(new Action1<Object>() {
+            @Override
+            public void call(Object t) {
+                fail("Value emitted: " + t);
+            }
+        }, new Action1<Throwable>() {
+            @Override
+            public void call(Throwable t) {
+                received[0] = true;
+                assertEquals(TestException.class, t.getClass());
+            }
+        });
+
+        assertTrue(received[0]);
+    }
+
+    @Test
+    public void testSubscribeCallback3() {
+        final boolean[] received = { false, false };
+        Observable.just(1).observeOn(Schedulers.computation()).toBlocking().subscribe(new Action1<Integer>() {
+            @Override
+            public void call(Integer t) {
+                received[0] = true;
+                assertEquals((Integer)1, t);
+            }
+        }, new Action1<Throwable>() {
+            @Override
+            public void call(Throwable t) {
+                t.printStackTrace();
+                fail("Exception received!");
+            }
+        }, new Action0() {
+            @Override
+            public void call() {
+                received[1] = true;
+            }
+        });
+
+        assertTrue(received[0]);
+        assertTrue(received[1]);
+    }
+    @Test
+    public void testSubscribeCallback3Error() {
+        final TestSubscriber<Object> ts = TestSubscriber.create();
+        Observable.error(new TestException()).observeOn(Schedulers.computation()).toBlocking().subscribe(new Action1<Object>() {
+            @Override
+            public void call(Object t) {
+                ts.onNext(t);
+            }
+        }, new Action1<Throwable>() {
+            @Override
+            public void call(Throwable t) {
+                ts.onError(t);
+            }
+        }, new Action0() {
+            @Override
+            public void call() {
+                ts.onCompleted();
+            }
+        });
+
+        ts.assertNoValues();
+        ts.assertNotCompleted();
+        ts.assertError(TestException.class);
+    }
 }

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -37,7 +37,7 @@ public class OperatorPublishTest {
     @Test
     public void testPublish() throws InterruptedException {
         final AtomicInteger counter = new AtomicInteger();
-        ConnectableObservable<String> o = Observable.create(new OnSubscribe<String>() {
+        ConnectableObservable<String> o = Observable.unsafeCreate(new OnSubscribe<String>() {
 
             @Override
             public void call(final Subscriber<? super String> observer) {
@@ -98,7 +98,7 @@ public class OperatorPublishTest {
 
         });
         Observable<Integer> slow = is.observeOn(Schedulers.computation()).map(new Func1<Integer, Integer>() {
-            int c = 0;
+            int c;
 
             @Override
             public Integer call(Integer i) {
@@ -199,8 +199,8 @@ public class OperatorPublishTest {
                         sourceUnsubscribed.set(true);
                     }
                 }).share();
-        ;
-        
+
+
         final AtomicBoolean child1Unsubscribed = new AtomicBoolean();
         final AtomicBoolean child2Unsubscribed = new AtomicBoolean();
 
@@ -220,7 +220,7 @@ public class OperatorPublishTest {
                 super.onNext(t);
             }
         };
-        
+
         source.doOnUnsubscribe(new Action0() {
             @Override
             public void call() {
@@ -228,20 +228,20 @@ public class OperatorPublishTest {
             }
         }).take(5)
         .subscribe(ts1);
-        
+
         ts1.awaitTerminalEvent();
         ts2.awaitTerminalEvent();
-        
+
         ts1.assertNoErrors();
         ts2.assertNoErrors();
-        
+
         assertTrue(sourceUnsubscribed.get());
         assertTrue(child1Unsubscribed.get());
         assertTrue(child2Unsubscribed.get());
-        
+
         ts1.assertReceivedOnNext(Arrays.asList(1, 2, 3, 4, 5));
         ts2.assertReceivedOnNext(Arrays.asList(4, 5, 6, 7, 8));
-        
+
         assertEquals(8, sourceEmission.get());
     }
 
@@ -260,7 +260,7 @@ public class OperatorPublishTest {
         subscriber.assertNoErrors();
         subscriber.assertTerminalEvent();
     }
-    
+
     @Test
     public void testSubscribeAfterDisconnectThenConnect() {
         ConnectableObservable<Integer> source = Observable.just(1).publish();
@@ -288,7 +288,7 @@ public class OperatorPublishTest {
         System.out.println(s);
         System.out.println(s2);
     }
-    
+
     @Test
     public void testNoSubscriberRetentionOnCompleted() {
         OperatorPublish<Integer> source = (OperatorPublish<Integer>)Observable.just(1).publish();
@@ -299,8 +299,8 @@ public class OperatorPublishTest {
 
         ts1.assertReceivedOnNext(Arrays.<Integer>asList());
         ts1.assertNoErrors();
-        assertTrue(ts1.getOnCompletedEvents().isEmpty());
-        
+        assertEquals(0, ts1.getCompletions());
+
         source.connect();
 
         ts1.assertReceivedOnNext(Arrays.asList(1));
@@ -309,58 +309,58 @@ public class OperatorPublishTest {
 
         assertNull(source.current.get());
     }
-    
+
     @Test
     public void testNonNullConnection() {
         ConnectableObservable<Object> source = Observable.never().publish();
-        
+
         assertNotNull(source.connect());
         assertNotNull(source.connect());
     }
-    
+
     @Test
     public void testNoDisconnectSomeoneElse() {
         ConnectableObservable<Object> source = Observable.never().publish();
 
         Subscription s1 = source.connect();
         Subscription s2 = source.connect();
-        
+
         s1.unsubscribe();
-        
+
         Subscription s3 = source.connect();
-        
+
         s2.unsubscribe();
-        
+
         assertTrue(s1.isUnsubscribed());
         assertTrue(s2.isUnsubscribed());
         assertFalse(s3.isUnsubscribed());
     }
-    
+
     @Test
     public void testZeroRequested() {
         ConnectableObservable<Integer> source = Observable.just(1).publish();
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onStart() {
                 request(0);
             }
         };
-        
+
         source.subscribe(ts);
-        
+
         ts.assertReceivedOnNext(Arrays.<Integer>asList());
         ts.assertNoErrors();
-        assertTrue(ts.getOnCompletedEvents().isEmpty());
-        
+        assertEquals(0, ts.getCompletions());
+
         source.connect();
 
         ts.assertReceivedOnNext(Arrays.<Integer>asList());
         ts.assertNoErrors();
-        assertTrue(ts.getOnCompletedEvents().isEmpty());
-        
+        assertEquals(0, ts.getCompletions());
+
         ts.requestMore(5);
-        
+
         ts.assertReceivedOnNext(Arrays.<Integer>asList(1));
         ts.assertNoErrors();
         ts.assertTerminalEvent();
@@ -368,24 +368,24 @@ public class OperatorPublishTest {
     @Test
     public void testConnectIsIdempotent() {
         final AtomicInteger calls = new AtomicInteger();
-        Observable<Integer> source = Observable.create(new OnSubscribe<Integer>() {
+        Observable<Integer> source = Observable.unsafeCreate(new OnSubscribe<Integer>() {
             @Override
             public void call(Subscriber<? super Integer> t) {
                 calls.getAndIncrement();
             }
         });
-        
+
         ConnectableObservable<Integer> conn = source.publish();
 
         assertEquals(0, calls.get());
 
         conn.connect();
         conn.connect();
-        
+
         assertEquals(1, calls.get());
-        
+
         conn.connect().unsubscribe();
-        
+
         conn.connect();
         conn.connect();
 
@@ -403,9 +403,9 @@ public class OperatorPublishTest {
                     tss.add(ts);
                     obs.subscribe(ts);
                 }
-                
+
                 Subscription s = co.connect();
-                
+
                 for (TestSubscriber<Integer> ts : tss) {
                     ts.awaitTerminalEvent(2, TimeUnit.SECONDS);
                     ts.assertTerminalEvent();

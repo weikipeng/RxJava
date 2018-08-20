@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,7 +28,7 @@ public final class AssertObservable {
      * Asserts that two Observables are equal. If they are not, an {@link AssertionError} is thrown
      * with the given message. If <code>expecteds</code> and <code>actuals</code> are
      * <code>null</code>, they are considered equal.
-     * 
+     * @param <T> the value tpye
      * @param expected
      *            Observable with expected values.
      * @param actual
@@ -42,7 +42,8 @@ public final class AssertObservable {
      * Asserts that two Observables are equal. If they are not, an {@link AssertionError} is thrown
      * with the given message. If <code>expected</code> and <code>actual</code> are
      * <code>null</code>, they are considered equal.
-     * 
+     *
+     * @param <T> the value tpye
      * @param message
      *            the identifying message for the {@link AssertionError} (<code>null</code> okay)
      * @param expected
@@ -58,13 +59,13 @@ public final class AssertObservable {
      * Asserts that two {@link Observable}s are equal and returns an empty {@link Observable}. If
      * they are not, an {@link Observable} is returned that calls onError with an {@link AssertionError} when subscribed to. If <code>expected</code> and <code>actual</code>
      * are <code>null</code>, they are considered equal.
-     * 
-     * @param message
-     *            the identifying message for the {@link AssertionError} (<code>null</code> okay)
+     *
+     * @param <T> the value tpye
      * @param expected
      *            Observable with expected values.
      * @param actual
      *            Observable with actual values
+     * @return the observable resulting in a complete or error signal.
      */
     public static <T> Observable<Void> assertObservableEquals(Observable<T> expected, Observable<T> actual) {
         return assertObservableEquals(null, expected, actual);
@@ -74,13 +75,15 @@ public final class AssertObservable {
      * Asserts that two {@link Observable}s are equal and returns an empty {@link Observable}. If
      * they are not, an {@link Observable} is returned that calls onError with an {@link AssertionError} when subscribed to with the given message. If <code>expected</code>
      * and <code>actual</code> are <code>null</code>, they are considered equal.
-     * 
+     *
+     * @param <T> the value type
      * @param message
      *            the identifying message for the {@link AssertionError} (<code>null</code> okay)
      * @param expected
      *            Observable with expected values.
      * @param actual
      *            Observable with actual values
+     * @return the observable resulting in a complete or error signal.
      */
     public static <T> Observable<Void> assertObservableEquals(final String message, Observable<T> expected, Observable<T> actual) {
         if (actual == null && expected != null) {
@@ -99,24 +102,30 @@ public final class AssertObservable {
                 if (expectedNotfication.equals(actualNotification)) {
                     StringBuilder message = new StringBuilder();
                     message.append(expectedNotfication.getKind());
-                    if (expectedNotfication.hasValue())
+                    if (expectedNotfication.hasValue()) {
                         message.append(" ").append(expectedNotfication.getValue());
-                    if (expectedNotfication.hasThrowable())
+                    }
+                    if (expectedNotfication.hasThrowable()) {
                         message.append(" ").append(expectedNotfication.getThrowable());
+                    }
                     return Notification.createOnNext("equals " + message.toString());
                 }
                 else {
                     StringBuilder error = new StringBuilder();
                     error.append("expected:<").append(expectedNotfication.getKind());
-                    if (expectedNotfication.hasValue())
+                    if (expectedNotfication.hasValue()) {
                         error.append(" ").append(expectedNotfication.getValue());
-                    if (expectedNotfication.hasThrowable())
+                    }
+                    if (expectedNotfication.hasThrowable()) {
                         error.append(" ").append(expectedNotfication.getThrowable());
+                    }
                     error.append("> but was:<").append(actualNotification.getKind());
-                    if (actualNotification.hasValue())
+                    if (actualNotification.hasValue()) {
                         error.append(" ").append(actualNotification.getValue());
-                    if (actualNotification.hasThrowable())
+                    }
+                    if (actualNotification.hasThrowable()) {
                         error.append(" ").append(actualNotification.getThrowable());
+                    }
                     error.append(">");
 
                     return Notification.createOnError(new AssertionError(error.toString()));
@@ -133,10 +142,11 @@ public final class AssertObservable {
                 message += "\n\t" + (b.isOnError() ? b.getThrowable().getMessage() : b.getValue());
                 fail |= b.isOnError();
 
-                if (fail)
+                if (fail) {
                     return Notification.createOnError(new AssertionError(message));
-                else
+                } else {
                     return Notification.createOnNext(message);
+                }
             }
         };
 

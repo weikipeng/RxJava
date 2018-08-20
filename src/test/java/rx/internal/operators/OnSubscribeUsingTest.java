@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,39 +15,30 @@
  */
 package rx.internal.operators;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import org.junit.Test;
+import org.junit.*;
 import org.mockito.InOrder;
 
+import rx.*;
 import rx.Observable;
 import rx.Observable.OnSubscribe;
 import rx.Observer;
-import rx.Subscriber;
-import rx.Subscription;
 import rx.exceptions.TestException;
-import rx.functions.Action0;
-import rx.functions.Action1;
-import rx.functions.Func0;
-import rx.functions.Func1;
+import rx.functions.*;
+import rx.observers.TestSubscriber;
 import rx.subscriptions.Subscriptions;
 
 public class OnSubscribeUsingTest {
 
     private interface Resource {
-        public String getTextFromWeb();
+        String getTextFromWeb();
 
-        public void dispose();
+        void dispose();
     }
 
     private static class DisposeAction implements Action1<Resource> {
@@ -108,7 +99,7 @@ public class OnSubscribeUsingTest {
         inOrder.verify(observer, times(1)).onCompleted();
         inOrder.verifyNoMoreInteractions();
 
-        // The resouce should be closed
+        // The resource should be closed
         verify(resource, times(1)).dispose();
     }
 
@@ -263,7 +254,7 @@ public class OnSubscribeUsingTest {
         Func1<Subscription, Observable<Integer>> observableFactory = new Func1<Subscription, Observable<Integer>>() {
             @Override
             public Observable<Integer> call(Subscription subscription) {
-                return Observable.create(new OnSubscribe<Integer>() {
+                return Observable.unsafeCreate(new OnSubscribe<Integer>() {
                     @Override
                     public void call(Subscriber<? super Integer> t1) {
                         throw new TestException();
@@ -289,7 +280,7 @@ public class OnSubscribeUsingTest {
         final List<String> events = new ArrayList<String>();
         Func0<Resource> resourceFactory = createResourceFactory(events);
         final Action0 completion = createOnCompletedAction(events);
-        final Action0 unsub =createUnsubAction(events);
+        final Action0 unsub = createUnsubAction(events);
 
         Func1<Resource, Observable<String>> observableFactory = new Func1<Resource, Observable<String>>() {
             @Override
@@ -314,7 +305,7 @@ public class OnSubscribeUsingTest {
         final List<String> events = new ArrayList<String>();
         Func0<Resource> resourceFactory = createResourceFactory(events);
         final Action0 completion = createOnCompletedAction(events);
-        final Action0 unsub =createUnsubAction(events);
+        final Action0 unsub = createUnsubAction(events);
 
         Func1<Resource, Observable<String>> observableFactory = new Func1<Resource, Observable<String>>() {
             @Override
@@ -334,15 +325,15 @@ public class OnSubscribeUsingTest {
 
     }
 
-    
-    
+
+
     @Test
     public void testUsingDisposesEagerlyBeforeError() {
         final List<String> events = new ArrayList<String>();
         Func0<Resource> resourceFactory = createResourceFactory(events);
         final Action1<Throwable> onError = createOnErrorAction(events);
         final Action0 unsub = createUnsubAction(events);
-        
+
         Func1<Resource, Observable<String>> observableFactory = new Func1<Resource, Observable<String>>() {
             @Override
             public Observable<String> call(Resource resource) {
@@ -360,14 +351,14 @@ public class OnSubscribeUsingTest {
         assertEquals(Arrays.asList("disposed", "error", "unsub"), events);
 
     }
-    
+
     @Test
     public void testUsingDoesNotDisposesEagerlyBeforeError() {
         final List<String> events = new ArrayList<String>();
         Func0<Resource> resourceFactory = createResourceFactory(events);
         final Action1<Throwable> onError = createOnErrorAction(events);
         final Action0 unsub = createUnsubAction(events);
-        
+
         Func1<Resource, Observable<String>> observableFactory = new Func1<Resource, Observable<String>>() {
             @Override
             public Observable<String> call(Resource resource) {
@@ -422,7 +413,7 @@ public class OnSubscribeUsingTest {
             }
         };
     }
-    
+
     private static Action0 createOnCompletedAction(final List<String> events) {
         return new Action0() {
             @Override
@@ -431,5 +422,74 @@ public class OnSubscribeUsingTest {
             }
         };
     }
-    
+
+    @Test
+    public void factoryThrows() {
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        final AtomicInteger count = new AtomicInteger();
+
+        Observable.<Integer, Integer>using(
+                new Func0<Integer>() {
+                    @Override
+                    public Integer call() {
+                        return 1;
+                    }
+                },
+                new Func1<Integer, Observable<Integer>>() {
+                    @Override
+                    public Observable<Integer> call(Integer v) {
+                        throw new TestException("forced failure");
+                    }
+                },
+                new Action1<Integer>() {
+                    @Override
+                    public void call(Integer c) {
+                        count.incrementAndGet();
+                    }
+                }
+        )
+        .unsafeSubscribe(ts);
+
+        ts.assertError(TestException.class);
+
+        Assert.assertEquals(1, count.get());
+    }
+
+    @Test
+    public void nonEagerTermination() {
+
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        final AtomicInteger count = new AtomicInteger();
+
+        Observable.<Integer, Integer>using(
+                new Func0<Integer>() {
+                    @Override
+                    public Integer call() {
+                        return 1;
+                    }
+                },
+                new Func1<Integer, Observable<Integer>>() {
+                    @Override
+                    public Observable<Integer> call(Integer v) {
+                        return Observable.just(v);
+                    }
+                },
+                new Action1<Integer>() {
+                    @Override
+                    public void call(Integer c) {
+                        count.incrementAndGet();
+                    }
+                }, false
+        )
+        .unsafeSubscribe(ts);
+
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertCompleted();
+
+        Assert.assertEquals(1, count.get());
+    }
 }

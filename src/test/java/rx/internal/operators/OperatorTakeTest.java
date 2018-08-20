@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,7 +19,7 @@ import static org.junit.Assert.*;
 import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
 
-import java.util.Arrays;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 
@@ -27,11 +27,15 @@ import org.junit.Test;
 import org.mockito.InOrder;
 
 import rx.*;
+import rx.Observable;
 import rx.Observable.OnSubscribe;
+import rx.Observer;
 import rx.exceptions.TestException;
 import rx.functions.*;
 import rx.observers.*;
+import rx.plugins.RxJavaHooks;
 import rx.schedulers.Schedulers;
+import rx.subjects.PublishSubject;
 
 public class OperatorTakeTest {
 
@@ -111,7 +115,7 @@ public class OperatorTakeTest {
 
     @Test
     public void testTakeDoesntLeakErrors() {
-        Observable<String> source = Observable.create(new Observable.OnSubscribe<String>() {
+        Observable<String> source = Observable.unsafeCreate(new Observable.OnSubscribe<String>() {
             @Override
             public void call(Subscriber<? super String> observer) {
                 observer.onNext("one");
@@ -135,7 +139,7 @@ public class OperatorTakeTest {
     public void testTakeZeroDoesntLeakError() {
         final AtomicBoolean subscribed = new AtomicBoolean(false);
         final AtomicBoolean unSubscribed = new AtomicBoolean(false);
-        Observable<String> source = Observable.create(new Observable.OnSubscribe<String>() {
+        Observable<String> source = Observable.unsafeCreate(new Observable.OnSubscribe<String>() {
             @Override
             public void call(Subscriber<? super String> observer) {
                 subscribed.set(true);
@@ -172,14 +176,14 @@ public class OperatorTakeTest {
     public void testUnsubscribeAfterTake() {
         final Subscription s = mock(Subscription.class);
         TestObservableFunc f = new TestObservableFunc("one", "two", "three");
-        Observable<String> w = Observable.create(f);
+        Observable<String> w = Observable.unsafeCreate(f);
 
         @SuppressWarnings("unchecked")
         Observer<String> observer = mock(Observer.class);
-        
+
         Subscriber<String> subscriber = Subscribers.from(observer);
         subscriber.add(s);
-        
+
         Observable<String> take = w.lift(new OperatorTake<String>(1));
         take.subscribe(subscriber);
 
@@ -217,7 +221,7 @@ public class OperatorTakeTest {
     @Test(timeout = 2000)
     public void testMultiTake() {
         final AtomicInteger count = new AtomicInteger();
-        Observable.create(new OnSubscribe<Integer>() {
+        Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
             @Override
             public void call(Subscriber<? super Integer> s) {
@@ -244,7 +248,7 @@ public class OperatorTakeTest {
     private static class TestObservableFunc implements Observable.OnSubscribe<String> {
 
         final String[] values;
-        Thread t = null;
+        Thread t;
 
         public TestObservableFunc(String... values) {
             this.values = values;
@@ -276,7 +280,7 @@ public class OperatorTakeTest {
         }
     }
 
-    private static Observable<Long> INFINITE_OBSERVABLE = Observable.create(new OnSubscribe<Long>() {
+    private static Observable<Long> INFINITE_OBSERVABLE = Observable.unsafeCreate(new OnSubscribe<Long>() {
 
         @Override
         public void call(Subscriber<? super Long> op) {
@@ -288,29 +292,29 @@ public class OperatorTakeTest {
         }
 
     });
-    
+
     @Test(timeout = 2000)
     public void testTakeObserveOn() {
         @SuppressWarnings("unchecked")
         Observer<Object> o = mock(Observer.class);
         TestSubscriber<Object> ts = new TestSubscriber<Object>(o);
-        
+
         INFINITE_OBSERVABLE.onBackpressureDrop().observeOn(Schedulers.newThread()).take(1).subscribe(ts);
         ts.awaitTerminalEvent();
         ts.assertNoErrors();
-        
+
         verify(o).onNext(1L);
         verify(o, never()).onNext(2L);
         verify(o).onCompleted();
         verify(o, never()).onError(any(Throwable.class));
     }
-    
+
     @Test
     public void testProducerRequestThroughTake() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
         ts.requestMore(3);
         final AtomicLong requested = new AtomicLong();
-        Observable.create(new OnSubscribe<Integer>() {
+        Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
             @Override
             public void call(Subscriber<? super Integer> s) {
@@ -327,13 +331,13 @@ public class OperatorTakeTest {
         }).take(3).subscribe(ts);
         assertEquals(3, requested.get());
     }
-    
+
     @Test
     public void testProducerRequestThroughTakeIsModified() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
         ts.requestMore(3);
         final AtomicLong requested = new AtomicLong();
-        Observable.create(new OnSubscribe<Integer>() {
+        Observable.unsafeCreate(new OnSubscribe<Integer>() {
 
             @Override
             public void call(Subscriber<? super Integer> s) {
@@ -350,7 +354,7 @@ public class OperatorTakeTest {
         }).take(1).subscribe(ts);
         assertEquals(1, requested.get());
     }
-    
+
     @Test
     public void testInterrupt() throws InterruptedException {
         final AtomicReference<Object> exception = new AtomicReference<Object>();
@@ -374,7 +378,7 @@ public class OperatorTakeTest {
         latch.await();
         assertNull(exception.get());
     }
-    
+
     @Test
     public void testDoesntRequestMoreThanNeededFromUpstream() throws InterruptedException {
         final AtomicLong requests = new AtomicLong();
@@ -399,22 +403,96 @@ public class OperatorTakeTest {
         ts.assertNoErrors();
         assertEquals(2,requests.get());
     }
-    
+
     @Test
     public void takeFinalValueThrows() {
         Observable<Integer> source = Observable.just(1).take(1);
-        
+
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>() {
             @Override
             public void onNext(Integer t) {
                 throw new TestException();
             }
         };
-        
+
         source.subscribe(ts);
-        
+
         ts.assertNoValues();
         ts.assertError(TestException.class);
         ts.assertNotCompleted();
+    }
+
+    @Test
+    public void testReentrantTake() {
+        final PublishSubject<Integer> source = PublishSubject.create();
+
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+
+        source
+        .rebatchRequests(2) // take(1) requests 1
+        .take(1).doOnNext(new Action1<Integer>() {
+            @Override
+            public void call(Integer v) {
+                source.onNext(2);
+            }
+        }).subscribe(ts);
+
+        source.onNext(1);
+
+        ts.assertValue(1);
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void takeNegative() {
+        Observable.range(1, 1000 * 1000 * 1000).take(-1);
+    }
+
+    @Test(timeout = 1000)
+    public void takeZero() {
+        TestSubscriber<Integer> ts = TestSubscriber.create();
+
+        Observable.range(1, 1000 * 1000 * 1000).take(0).subscribe(ts);
+
+        ts.assertNoValues();
+        ts.assertNoErrors();
+        ts.assertCompleted();
+    }
+
+    @Test
+    public void crashReportedToHooks() {
+        final List<Throwable> errors = Collections.synchronizedList(new ArrayList<Throwable>());
+        RxJavaHooks.setOnError(new Action1<Throwable>() {
+            @Override
+            public void call(Throwable error) {
+                errors.add(error);
+            }
+        });
+
+        try {
+            Observable.just("1")
+                .take(1)
+                .toSingle()
+                .subscribe(
+                        new Action1<String>() {
+                            @Override
+                            public void call(String it) {
+                                throw new TestException("bla");
+                            }
+                        },
+                        new Action1<Throwable>() {
+                            @Override
+                            public void call(Throwable error) {
+                                errors.add(new AssertionError());
+                            }
+                        }
+                );
+            
+            assertEquals("" + errors, 1, errors.size());
+            assertTrue("" + errors.get(0), errors.get(0).getMessage().equals("bla"));
+        } finally {
+            RxJavaHooks.setOnError(null);
+        }
     }
 }

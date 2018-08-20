@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,27 +15,20 @@
  */
 package rx.exceptions;
 
-import java.io.PrintStream;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
+import java.io.*;
+import java.util.*;
 
 /**
  * Represents an exception that is a composite of one or more other exceptions. A {@code CompositeException}
  * does not modify the structure of any exception it wraps, but at print-time it iterates through the list of
- * Throwables contained in the composit in order to print them all.
+ * Throwables contained in the composite in order to print them all.
  *
  * Its invariant is to contain an immutable, ordered (by insertion order), unique list of non-composite
  * exceptions. You can retrieve individual exceptions in this list with {@link #getExceptions()}.
- * 
+ *
  * The {@link #printStackTrace()} implementation handles the StackTrace in a customized way instead of using
  * {@code getCause()} so that it can avoid circular references.
- * 
+ *
  * If you invoke {@link #getCause()}, it will lazily create the causal chain but will stop if it finds any
  * Throwable in the chain that it has already seen.
  */
@@ -46,14 +39,22 @@ public final class CompositeException extends RuntimeException {
     private final List<Throwable> exceptions;
     private final String message;
 
-    public CompositeException(String messagePrefix, Collection<? extends Throwable> errors) {
+    private Throwable cause;
+
+    /**
+     * Constructs a CompositeException with the given prefix and error collection.
+     * @param messagePrefix the prefix to use (actually unused)
+     * @param errors the collection of errors
+     * @deprecated please use {@link #CompositeException(Collection)} */
+    @Deprecated
+    public CompositeException(String messagePrefix, Collection<? extends Throwable> errors) { // NOPMD
         Set<Throwable> deDupedExceptions = new LinkedHashSet<Throwable>();
-        List<Throwable> _exceptions = new ArrayList<Throwable>();
+        List<Throwable> localExceptions = new ArrayList<Throwable>();
         if (errors != null) {
             for (Throwable ex : errors) {
                 if (ex instanceof CompositeException) {
                     deDupedExceptions.addAll(((CompositeException) ex).getExceptions());
-                } else 
+                } else
                 if (ex != null) {
                     deDupedExceptions.add(ex);
                 } else {
@@ -64,13 +65,47 @@ public final class CompositeException extends RuntimeException {
             deDupedExceptions.add(new NullPointerException());
         }
 
-        _exceptions.addAll(deDupedExceptions);
-        this.exceptions = Collections.unmodifiableList(_exceptions);
+        localExceptions.addAll(deDupedExceptions);
+        this.exceptions = Collections.unmodifiableList(localExceptions);
         this.message = exceptions.size() + " exceptions occurred. ";
     }
 
+    /**
+     * Constructs a CompositeException instance with the Throwable elements
+     * of the supplied Collection.
+     * <p>Null values are replaced by {@link NullPointerException}.
+     * @param errors the collection of errors
+     */
     public CompositeException(Collection<? extends Throwable> errors) {
         this(null, errors);
+    }
+
+    /**
+     * Constructs a CompositeException instance with the supplied initial Throwables.
+     * @param errors the array of Throwables
+     * @since 1.3
+     */
+    public CompositeException(Throwable... errors) {
+        Set<Throwable> deDupedExceptions = new LinkedHashSet<Throwable>();
+        List<Throwable> localExceptions = new ArrayList<Throwable>();
+        if (errors != null) {
+            for (Throwable ex : errors) {
+                if (ex instanceof CompositeException) {
+                    deDupedExceptions.addAll(((CompositeException) ex).getExceptions());
+                } else
+                if (ex != null) {
+                    deDupedExceptions.add(ex);
+                } else {
+                    deDupedExceptions.add(new NullPointerException());
+                }
+            }
+        } else {
+            deDupedExceptions.add(new NullPointerException());
+        }
+
+        localExceptions.addAll(deDupedExceptions);
+        this.exceptions = Collections.unmodifiableList(localExceptions);
+        this.message = exceptions.size() + " exceptions occurred. ";
     }
 
     /**
@@ -87,26 +122,24 @@ public final class CompositeException extends RuntimeException {
         return message;
     }
 
-    private Throwable cause = null;
-
     @Override
-    public synchronized Throwable getCause() {
+    public synchronized Throwable getCause() { // NOPMD
         if (cause == null) {
             // we lazily generate this causal chain if this is called
-            CompositeExceptionCausalChain _cause = new CompositeExceptionCausalChain();
+            CompositeExceptionCausalChain localCause = new CompositeExceptionCausalChain();
             Set<Throwable> seenCauses = new HashSet<Throwable>();
 
-            Throwable chain = _cause;
+            Throwable chain = localCause;
             for (Throwable e : exceptions) {
                 if (seenCauses.contains(e)) {
                     // already seen this outer Throwable so skip
                     continue;
                 }
                 seenCauses.add(e);
-                
+
                 List<Throwable> listOfCauses = getListOfCauses(e);
                 // check if any of them have been seen before
-                for(Throwable child : listOfCauses) {
+                for (Throwable child : listOfCauses) {
                     if (seenCauses.contains(child)) {
                         // already seen this outer Throwable so skip
                         e = new RuntimeException("Duplicate found in causal chain so cropping to prevent loop ...");
@@ -118,14 +151,14 @@ public final class CompositeException extends RuntimeException {
                 // we now have 'e' as the last in the chain
                 try {
                     chain.initCause(e);
-                } catch (Throwable t) {
+                } catch (Throwable t) { // NOPMD
                     // ignore
                     // the javadocs say that some Throwables (depending on how they're made) will never
                     // let me call initCause without blowing up even if it returns null
                 }
-                chain = chain.getCause();
+                chain = getRootCause(chain);
             }
-            cause = _cause;
+            cause = localCause;
         }
         return cause;
     }
@@ -158,39 +191,39 @@ public final class CompositeException extends RuntimeException {
     /**
      * Special handling for printing out a {@code CompositeException}.
      * Loops through all inner exceptions and prints them out.
-     * 
+     *
      * @param s
      *            stream to print to
      */
     private void printStackTrace(PrintStreamOrWriter s) {
-        StringBuilder bldr = new StringBuilder();
-        bldr.append(this).append("\n");
+        StringBuilder b = new StringBuilder(128);
+        b.append(this).append('\n');
         for (StackTraceElement myStackElement : getStackTrace()) {
-            bldr.append("\tat ").append(myStackElement).append("\n");
+            b.append("\tat ").append(myStackElement).append('\n');
         }
         int i = 1;
         for (Throwable ex : exceptions) {
-            bldr.append("  ComposedException ").append(i).append(" :").append("\n");
-            appendStackTrace(bldr, ex, "\t");
+            b.append("  ComposedException ").append(i).append(" :\n");
+            appendStackTrace(b, ex, "\t");
             i++;
         }
         synchronized (s.lock()) {
-            s.println(bldr.toString());
+            s.println(b.toString());
         }
     }
 
-    private void appendStackTrace(StringBuilder bldr, Throwable ex, String prefix) {
-        bldr.append(prefix).append(ex).append("\n");
+    private void appendStackTrace(StringBuilder b, Throwable ex, String prefix) {
+        b.append(prefix).append(ex).append('\n');
         for (StackTraceElement stackElement : ex.getStackTrace()) {
-            bldr.append("\t\tat ").append(stackElement).append("\n");
+            b.append("\t\tat ").append(stackElement).append('\n');
         }
         if (ex.getCause() != null) {
-            bldr.append("\tCaused by: ");
-            appendStackTrace(bldr, ex.getCause(), "");
+            b.append("\tCaused by: ");
+            appendStackTrace(b, ex.getCause(), "");
         }
     }
 
-    private abstract static class PrintStreamOrWriter {
+    abstract static class PrintStreamOrWriter {
         /** Returns the object to be locked when using this StreamOrWriter */
         abstract Object lock();
 
@@ -201,7 +234,7 @@ public final class CompositeException extends RuntimeException {
     /**
      * Same abstraction and implementation as in JDK to allow PrintStream and PrintWriter to share implementation
      */
-    private static class WrappedPrintStream extends PrintStreamOrWriter {
+    static final class WrappedPrintStream extends PrintStreamOrWriter {
         private final PrintStream printStream;
 
         WrappedPrintStream(PrintStream printStream) {
@@ -219,7 +252,7 @@ public final class CompositeException extends RuntimeException {
         }
     }
 
-    private static class WrappedPrintWriter extends PrintStreamOrWriter {
+    static final class WrappedPrintWriter extends PrintStreamOrWriter {
         private final PrintWriter printWriter;
 
         WrappedPrintWriter(PrintWriter printWriter) {
@@ -239,7 +272,7 @@ public final class CompositeException extends RuntimeException {
 
     /* package-private */final static class CompositeExceptionCausalChain extends RuntimeException {
         private static final long serialVersionUID = 3875212506787802066L;
-        /* package-private */static String MESSAGE = "Chain of Causes for CompositeException In Order Received =>";
+        /* package-private */static final String MESSAGE = "Chain of Causes for CompositeException In Order Received =>";
 
         @Override
         public String getMessage() {
@@ -247,19 +280,41 @@ public final class CompositeException extends RuntimeException {
         }
     }
 
-    private final List<Throwable> getListOfCauses(Throwable ex) {
+    private List<Throwable> getListOfCauses(Throwable ex) {
         List<Throwable> list = new ArrayList<Throwable>();
         Throwable root = ex.getCause();
-        if (root == null) {
+        if (root == null || root == ex) {
             return list;
         } else {
-            while(true) {
+            while (true) {
                 list.add(root);
-                if (root.getCause() == null) {
+                Throwable cause = root.getCause();
+                if (cause == null || cause == root) {
                     return list;
                 } else {
                     root = root.getCause();
                 }
+            }
+        }
+    }
+
+    /**
+     * Returns the root cause of {@code e}. If {@code e.getCause()} returns {@code null} or {@code e}, just return {@code e} itself.
+     *
+     * @param e the {@link Throwable} {@code e}.
+     * @return The root cause of {@code e}. If {@code e.getCause()} returns {@code null} or {@code e}, just return {@code e} itself.
+     */
+    private Throwable getRootCause(Throwable e) {
+        Throwable root = e.getCause();
+        if (root == null || root == e) {
+            return e;
+        } else {
+            while (true) {
+                Throwable cause = root.getCause();
+                if (cause == null || cause == root) {
+                    return root;
+                }
+                root = root.getCause();
             }
         }
     }

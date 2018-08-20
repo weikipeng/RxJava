@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,13 +15,13 @@
  */
 package rx.internal.operators;
 
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import rx.Observable.OnSubscribe;
-import rx.exceptions.Exceptions;
 import rx.Subscriber;
+import rx.exceptions.Exceptions;
 import rx.functions.Action0;
+import rx.internal.producers.SingleProducer;
 import rx.subscriptions.Subscriptions;
 
 /**
@@ -41,7 +41,7 @@ public final class OnSubscribeToObservableFuture {
     }
 
     /* package accessible for unit tests */static class ToObservableFuture<T> implements OnSubscribe<T> {
-        private final Future<? extends T> that;
+        final Future<? extends T> that;
         private final long time;
         private final TimeUnit unit;
 
@@ -72,10 +72,9 @@ public final class OnSubscribeToObservableFuture {
                     return;
                 }
                 T value = (unit == null) ? (T) that.get() : (T) that.get(time, unit);
-                subscriber.onNext(value);
-                subscriber.onCompleted();
+                subscriber.setProducer(new SingleProducer<T>(subscriber, value));
             } catch (Throwable e) {
-                // If this Observable is unsubscribed, we will receive an CancellationException.
+                // If this Observable is unsubscribed, we will receive a CancellationException.
                 // However, CancellationException will not be passed to the final Subscriber
                 // since it's already subscribed.
                 // If the Future is canceled in other place, CancellationException will be still

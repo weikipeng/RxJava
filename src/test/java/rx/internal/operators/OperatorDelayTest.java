@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,9 +30,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 
@@ -41,11 +41,8 @@ import rx.Observable;
 import rx.Observer;
 import rx.Subscription;
 import rx.exceptions.TestException;
-import rx.functions.Action1;
-import rx.functions.Func0;
-import rx.functions.Func1;
+import rx.functions.*;
 import rx.internal.util.RxRingBuffer;
-import rx.observers.TestObserver;
 import rx.observers.TestSubscriber;
 import rx.schedulers.Schedulers;
 import rx.schedulers.TestScheduler;
@@ -659,7 +656,7 @@ public class OperatorDelayTest {
             }
 
         });
-        TestObserver<Integer> observer = new TestObserver<Integer>();
+        TestSubscriber<Integer> observer = new TestSubscriber<Integer>();
         delayed.subscribe(observer);
         // all will be delivered after 500ms since range does not delay between them
         scheduler.advanceTimeBy(500L, TimeUnit.MILLISECONDS);
@@ -674,7 +671,7 @@ public class OperatorDelayTest {
                 .observeOn(Schedulers.computation())
                 .map(new Func1<Integer, Integer>() {
 
-                    int c = 0;
+                    int c;
 
                     @Override
                     public Integer call(Integer t) {
@@ -693,7 +690,7 @@ public class OperatorDelayTest {
         ts.assertNoErrors();
         assertEquals(RxRingBuffer.SIZE * 2, ts.getOnNextEvents().size());
     }
-    
+
     @Test
     public void testBackpressureWithSubscriptionTimedDelay() {
         TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
@@ -703,7 +700,7 @@ public class OperatorDelayTest {
                 .observeOn(Schedulers.computation())
                 .map(new Func1<Integer, Integer>() {
 
-                    int c = 0;
+                    int c;
 
                     @Override
                     public Integer call(Integer t) {
@@ -738,7 +735,7 @@ public class OperatorDelayTest {
                 .observeOn(Schedulers.computation())
                 .map(new Func1<Integer, Integer>() {
 
-                    int c = 0;
+                    int c;
 
                     @Override
                     public Integer call(Integer t) {
@@ -779,7 +776,7 @@ public class OperatorDelayTest {
                 .observeOn(Schedulers.computation())
                 .map(new Func1<Integer, Integer>() {
 
-                    int c = 0;
+                    int c;
 
                     @Override
                     public Integer call(Integer t) {
@@ -798,27 +795,70 @@ public class OperatorDelayTest {
         ts.assertNoErrors();
         assertEquals(RxRingBuffer.SIZE * 2, ts.getOnNextEvents().size());
     }
-    
+
     @Test
     public void testErrorRunsBeforeOnNext() {
         TestScheduler test = Schedulers.test();
-        
+
         PublishSubject<Integer> ps = PublishSubject.create();
-        
+
         TestSubscriber<Integer> ts = TestSubscriber.create();
-        
+
         ps.delay(1, TimeUnit.SECONDS, test).subscribe(ts);
-        
+
         ps.onNext(1);
-        
+
         test.advanceTimeBy(500, TimeUnit.MILLISECONDS);
-        
+
         ps.onError(new TestException());
-        
+
         test.advanceTimeBy(1, TimeUnit.SECONDS);
-        
+
         ts.assertNoValues();
         ts.assertError(TestException.class);
         ts.assertNotCompleted();
     }
+
+    @Test
+    public void delaySubscriptionCancelBeforeTime() {
+        PublishSubject<Integer> source = PublishSubject.create();
+
+        TestSubscriber<Integer> ts = new TestSubscriber<Integer>();
+
+        source.delaySubscription(100, TimeUnit.MILLISECONDS, scheduler).subscribe(ts);
+
+        Assert.assertFalse("source subscribed?", source.hasObservers());
+
+        ts.unsubscribe();
+
+        Assert.assertFalse("source subscribed?", source.hasObservers());
+
+        scheduler.advanceTimeBy(100, TimeUnit.MILLISECONDS);
+
+        Assert.assertFalse("source subscribed?", source.hasObservers());
+    }
+
+    @Test
+    public void delayAndTakeUntilNeverSubscribeToSource() {
+        PublishSubject<Integer> interrupt = PublishSubject.create();
+        final AtomicBoolean subscribed = new AtomicBoolean(false);
+        TestScheduler testScheduler = new TestScheduler();
+
+        Observable.just(1)
+        .doOnSubscribe(new Action0() {
+            @Override
+            public void call() {
+                subscribed.set(true);
+            }
+        })
+        .delaySubscription(1, TimeUnit.SECONDS, testScheduler)
+        .takeUntil(interrupt)
+        .subscribe();
+
+        interrupt.onNext(9000);
+        testScheduler.advanceTimeBy(1, TimeUnit.SECONDS);
+
+        Assert.assertFalse(subscribed.get());
+    }
+
 }

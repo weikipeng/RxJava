@@ -16,16 +16,16 @@
 package rx.internal.operators;
 
 import java.util.concurrent.TimeUnit;
+
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Scheduler;
 import rx.Scheduler.Worker;
 import rx.exceptions.Exceptions;
-import rx.Subscriber;
 import rx.functions.Action0;
 
 /**
  * Timer that emits a single 0L and completes after the specified time.
- * @see <a href='http://msdn.microsoft.com/en-us/library/system.reactive.linq.observable.timer.aspx'>MSDN Observable.Timer</a>
+ * @see <a href="http://msdn.microsoft.com/en-us/library/system.reactive.linq.observable.timer.aspx">MSDN Observable.Timer</a>
  */
 public final class OnSubscribeTimerOnce implements OnSubscribe<Long> {
     final long time;
@@ -55,5 +55,5 @@ public final class OnSubscribeTimerOnce implements OnSubscribe<Long> {
             }
         }, time, unit);
     }
-    
+
 }

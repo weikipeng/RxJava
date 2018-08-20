@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,7 +20,6 @@ import java.lang.reflect.Array;
 import java.util.*;
 
 import rx.Observer;
-import rx.annotations.Experimental;
 import rx.exceptions.Exceptions;
 import rx.functions.Action1;
 import rx.internal.operators.NotificationLite;
@@ -36,14 +35,14 @@ import rx.subjects.SubjectSubscriptionManager.SubjectObserver;
  * <p>
  * <pre> {@code
 
-  // observer will receive all events.
+  // observer will receive all 4 events (including "default").
   BehaviorSubject<Object> subject = BehaviorSubject.create("default");
   subject.subscribe(observer);
   subject.onNext("one");
   subject.onNext("two");
   subject.onNext("three");
 
-  // observer will receive the "one", "two" and "three" events, but not "zero"
+  // observer will receive the "one", "two" and "three" events, but not "default" and "zero"
   BehaviorSubject<Object> subject = BehaviorSubject.create("default");
   subject.onNext("zero");
   subject.onNext("one");
@@ -57,7 +56,7 @@ import rx.subjects.SubjectSubscriptionManager.SubjectObserver;
   subject.onNext("one");
   subject.onCompleted();
   subject.subscribe(observer);
-  
+
   // observer will receive only onError
   BehaviorSubject<Object> subject = BehaviorSubject.create("default");
   subject.onNext("zero");
@@ -65,11 +64,15 @@ import rx.subjects.SubjectSubscriptionManager.SubjectObserver;
   subject.onError(new RuntimeException("error"));
   subject.subscribe(observer);
   } </pre>
- * 
+ *
  * @param <T>
  *          the type of item expected to be observed by the Subject
  */
 public final class BehaviorSubject<T> extends Subject<T, T> {
+    /** An empty array to trigger getValues() to return a new array. */
+    private static final Object[] EMPTY_ARRAY = new Object[0];
+    private final SubjectSubscriptionManager<T> state;
+
     /**
      * Creates a {@link BehaviorSubject} without a default item.
      *
@@ -83,7 +86,7 @@ public final class BehaviorSubject<T> extends Subject<T, T> {
     /**
      * Creates a {@link BehaviorSubject} that emits the last item it observed and all subsequent items to each
      * {@link Observer} that subscribes to it.
-     * 
+     *
      * @param <T>
      *            the type of item the Subject will emit
      * @param defaultValue
@@ -97,22 +100,19 @@ public final class BehaviorSubject<T> extends Subject<T, T> {
     private static <T> BehaviorSubject<T> create(T defaultValue, boolean hasDefault) {
         final SubjectSubscriptionManager<T> state = new SubjectSubscriptionManager<T>();
         if (hasDefault) {
-            state.set(NotificationLite.instance().next(defaultValue));
+            state.setLatest(NotificationLite.next(defaultValue));
         }
         state.onAdded = new Action1<SubjectObserver<T>>() {
 
             @Override
             public void call(SubjectObserver<T> o) {
-                o.emitFirst(state.get(), state.nl);
+                o.emitFirst(state.getLatest());
             }
-            
+
         };
         state.onTerminated = state.onAdded;
-        return new BehaviorSubject<T>(state, state); 
+        return new BehaviorSubject<T>(state, state);
     }
-
-    private final SubjectSubscriptionManager<T> state;
-    private final NotificationLite<T> nl = NotificationLite.instance();
 
     protected BehaviorSubject(OnSubscribe<T> onSubscribe, SubjectSubscriptionManager<T> state) {
         super(onSubscribe);
@@ -121,24 +121,24 @@ public final class BehaviorSubject<T> extends Subject<T, T> {
 
     @Override
     public void onCompleted() {
-        Object last = state.get();
+        Object last = state.getLatest();
         if (last == null || state.active) {
-            Object n = nl.completed();
+            Object n = NotificationLite.completed();
             for (SubjectObserver<T> bo : state.terminate(n)) {
-                bo.emitNext(n, state.nl);
+                bo.emitNext(n);
             }
         }
     }
 
     @Override
     public void onError(Throwable e) {
-        Object last = state.get();
+        Object last = state.getLatest();
         if (last == null || state.active) {
-            Object n = nl.error(e);
+            Object n = NotificationLite.error(e);
             List<Throwable> errors = null;
             for (SubjectObserver<T> bo : state.terminate(n)) {
                 try {
-                    bo.emitNext(n, state.nl);
+                    bo.emitNext(n);
                 } catch (Throwable e2) {
                     if (errors == null) {
                         errors = new ArrayList<Throwable>();
@@ -153,11 +153,11 @@ public final class BehaviorSubject<T> extends Subject<T, T> {
 
     @Override
     public void onNext(T v) {
-        Object last = state.get();
+        Object last = state.getLatest();
         if (last == null || state.active) {
-            Object n = nl.next(v);
+            Object n = NotificationLite.next(v);
             for (SubjectObserver<T> bo : state.next(n)) {
-                bo.emitNext(n, state.nl);
+                bo.emitNext(n);
             }
         }
     }
@@ -176,48 +176,44 @@ public final class BehaviorSubject<T> extends Subject<T, T> {
      * <p>Note that unless {@link #hasCompleted()} or {@link #hasThrowable()} returns true, the value
      * retrieved by {@code getValue()} may get outdated.
      * @return true if and only if the subject has some value and hasn't terminated yet.
+     * @since 1.2
      */
-    @Experimental
-    @Override
     public boolean hasValue() {
-        Object o = state.get();
-        return nl.isNext(o);
+        Object o = state.getLatest();
+        return NotificationLite.isNext(o);
     }
     /**
      * Check if the Subject has terminated with an exception.
      * @return true if the subject has received a throwable through {@code onError}.
+     * @since 1.2
      */
-    @Experimental
-    @Override
     public boolean hasThrowable() {
-        Object o = state.get();
-        return nl.isError(o);
+        Object o = state.getLatest();
+        return NotificationLite.isError(o);
     }
     /**
      * Check if the Subject has terminated normally.
      * @return true if the subject completed normally via {@code onCompleted()}
+     * @since 1.2
      */
-    @Experimental
-    @Override
     public boolean hasCompleted() {
-        Object o = state.get();
-        return nl.isCompleted(o);
+        Object o = state.getLatest();
+        return NotificationLite.isCompleted(o);
     }
     /**
      * Returns the current value of the Subject if there is such a value and
      * the subject hasn't terminated yet.
      * <p>The method can return {@code null} for various reasons. Use {@link #hasValue()}, {@link #hasThrowable()}
      * and {@link #hasCompleted()} to determine if such {@code null} is a valid value, there was an
-     * exception or the Subject terminated (with or without receiving any value). 
+     * exception or the Subject terminated (with or without receiving any value).
      * @return the current value or {@code null} if the Subject doesn't have a value,
      * has terminated or has an actual {@code null} as a valid value.
+     * @since 1.2
      */
-    @Experimental
-    @Override
     public T getValue() {
-        Object o = state.get();
-        if (nl.isNext(o)) {
-            return nl.getValue(o);
+        Object o = state.getLatest();
+        if (NotificationLite.isNext(o)) {
+            return NotificationLite.getValue(o);
         }
         return null;
     }
@@ -225,26 +221,30 @@ public final class BehaviorSubject<T> extends Subject<T, T> {
      * Returns the Throwable that terminated the Subject.
      * @return the Throwable that terminated the Subject or {@code null} if the
      * subject hasn't terminated yet or it terminated normally.
+     * @since 1.2
      */
-    @Experimental
-    @Override
     public Throwable getThrowable() {
-        Object o = state.get();
-        if (nl.isError(o)) {
-            return nl.getError(o);
+        Object o = state.getLatest();
+        if (NotificationLite.isError(o)) {
+            return NotificationLite.getError(o);
         }
         return null;
     }
-    @Override
-    @Experimental
+    /**
+     * Returns a snapshot of the currently buffered non-terminal events into
+     * the provided {@code a} array or creates a new array if it has not enough capacity.
+     * @param a the array to fill in
+     * @return the array {@code a} if it had enough capacity or a new array containing the available values
+     * @since 1.2
+     */
     @SuppressWarnings("unchecked")
     public T[] getValues(T[] a) {
-        Object o = state.get();
-        if (nl.isNext(o)) {
+        Object o = state.getLatest();
+        if (NotificationLite.isNext(o)) {
             if (a.length == 0) {
                 a = (T[])Array.newInstance(a.getClass().getComponentType(), 1);
             }
-            a[0] = nl.getValue(o);
+            a[0] = NotificationLite.getValue(o);
             if (a.length > 1) {
                 a[1] = null;
             }
@@ -253,5 +253,22 @@ public final class BehaviorSubject<T> extends Subject<T, T> {
             a[0] = null;
         }
         return a;
+    }
+
+    /**
+     * Returns a snapshot of the currently buffered non-terminal events.
+     * <p>The operation is thread-safe.
+     *
+     * @return a snapshot of the currently buffered non-terminal events.
+     * @since (If this graduates from being an Experimental class method, replace this parenthetical with the release number)
+     * @since 1.2
+     */
+    @SuppressWarnings("unchecked")
+    public Object[] getValues() {
+        T[] r = getValues((T[])EMPTY_ARRAY);
+        if (r == EMPTY_ARRAY) {
+            return new Object[0]; // don't leak the default empty array.
+        }
+        return r;
     }
 }

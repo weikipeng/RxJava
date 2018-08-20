@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,6 +27,7 @@ import org.junit.Test;
 
 import rx.functions.Action0;
 import rx.functions.Action1;
+import rx.observers.TestSubscriber;
 
 public class ObservableDoOnTest {
 
@@ -64,6 +65,21 @@ public class ObservableDoOnTest {
 
         assertNotNull(t);
         assertEquals(t, r.get());
+    }
+
+    @Test
+    public void testDoOnErrorWithActionOfTypeObject() {
+        final AtomicReference<Boolean> r = new AtomicReference<Boolean>();
+        TestSubscriber<String> ts = TestSubscriber.create();
+        Observable.<String> error(new RuntimeException("an error"))
+            .doOnError(new Action1<Object>() {
+
+                @Override
+                public void call(Object v) {
+                    r.set(true);
+                }
+            }).subscribe(ts);
+        assertTrue(r.get());
     }
 
     @Test

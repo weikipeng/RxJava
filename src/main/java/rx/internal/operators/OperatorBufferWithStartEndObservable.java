@@ -15,15 +15,13 @@
  */
 package rx.internal.operators;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
+
 import rx.Observable;
 import rx.Observable.Operator;
-import rx.exceptions.Exceptions;
 import rx.Observer;
 import rx.Subscriber;
+import rx.exceptions.Exceptions;
 import rx.functions.Func1;
 import rx.observers.SerializedSubscriber;
 import rx.subscriptions.CompositeSubscription;
@@ -43,8 +41,10 @@ import rx.subscriptions.CompositeSubscription;
  * Note that when using this operation <strong>multiple overlapping chunks</strong> could be active at any
  * one point.
  * </p>
- * 
+ *
  * @param <T> the buffered value type
+ * @param <TOpening> the value type of the Observable opening buffers
+ * @param <TClosing> the value type of the Observable closing buffers
  */
 
 public final class OperatorBufferWithStartEndObservable<T, TOpening, TClosing> implements Operator<List<T>, T> {
@@ -66,33 +66,33 @@ public final class OperatorBufferWithStartEndObservable<T, TOpening, TClosing> i
 
     @Override
     public Subscriber<? super T> call(final Subscriber<? super List<T>> child) {
-        
-        final BufferingSubscriber bsub = new BufferingSubscriber(new SerializedSubscriber<List<T>>(child));
-        
+
+        final BufferingSubscriber s = new BufferingSubscriber(new SerializedSubscriber<List<T>>(child));
+
         Subscriber<TOpening> openSubscriber = new Subscriber<TOpening>() {
 
             @Override
             public void onNext(TOpening t) {
-                bsub.startBuffer(t);
+                s.startBuffer(t);
             }
 
             @Override
             public void onError(Throwable e) {
-                bsub.onError(e);
+                s.onError(e);
             }
 
             @Override
             public void onCompleted() {
-                bsub.onCompleted();
+                s.onCompleted();
             }
-            
+
         };
         child.add(openSubscriber);
-        child.add(bsub);
-        
+        child.add(s);
+
         bufferOpening.unsafeSubscribe(openSubscriber);
-        
-        return bsub;
+
+        return s;
     }
     final class BufferingSubscriber extends Subscriber<T> {
         final Subscriber<? super List<T>> child;
@@ -185,10 +185,10 @@ public final class OperatorBufferWithStartEndObservable<T, TOpening, TClosing> i
                     closingSubscriptions.remove(this);
                     endBuffer(chunk);
                 }
-                
+
             };
             closingSubscriptions.add(closeSubscriber);
-            
+
             cobs.unsafeSubscribe(closeSubscriber);
         }
         void endBuffer(List<T> toEnd) {
@@ -211,6 +211,6 @@ public final class OperatorBufferWithStartEndObservable<T, TOpening, TClosing> i
                 child.onNext(toEnd);
             }
         }
-        
+
     }
 }

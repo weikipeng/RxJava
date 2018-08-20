@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -35,7 +35,7 @@ import rx.functions.Func1;
  * - adds per second single-threaded => ~23,200,000 for 10,000
  * - adds + removes per second single-threaded => 15,562,100 for 100
  * - adds + removes per second single-threaded => 8,760,000 for 10,000
- * 
+ *
  * <pre> {@code
  * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
  * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5   263571.721     9856.994    ops/s
@@ -43,104 +43,91 @@ import rx.functions.Func1;
  * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5   139850.115    17143.705    ops/s
  * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5      809.982       72.931    ops/s
  * } </pre>
- * 
+ *
  * @param <E>
  */
 public final class IndexedRingBuffer<E> implements Subscription {
-
-    private static final ObjectPool<IndexedRingBuffer<?>> POOL = new ObjectPool<IndexedRingBuffer<?>>() {
-
-        @Override
-        protected IndexedRingBuffer<?> createObject() {
-            return new IndexedRingBuffer<Object>();
-        }
-
-    };
-
-    @SuppressWarnings("unchecked")
-    public final static <T> IndexedRingBuffer<T> getInstance() {
-        return (IndexedRingBuffer<T>) POOL.borrowObject();
-    }
-
     private final ElementSection<E> elements = new ElementSection<E>();
     private final IndexSection removed = new IndexSection();
     /* package for unit testing */final AtomicInteger index = new AtomicInteger();
     /* package for unit testing */final AtomicInteger removedIndex = new AtomicInteger();
-    
+
+    /* package for unit testing */static final int SIZE;
+
     // default size of ring buffer
     /**
      * Set at 256 ... Android defaults far smaller which likely will never hit the use cases that require the higher buffers.
      * <p>
-     * The 10000 size test represents something that should be a rare use case (merging 10000 concurrent Observables for example) 
-     * 
+     * The 10000 size test represents something that should be a rare use case (merging 10000 concurrent Observables for example)
+     *
      * <pre> {@code
      * ./gradlew benchmarks '-Pjmh=-f 1 -tu s -bm thrpt -wi 5 -i 5 -r 1 .*IndexedRingBufferPerf.*'
-     * 
+     *
      * 1024
-     * 
+     *
      * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5   269292.006     6013.347    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd          10000  thrpt         5     2217.103      163.396    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5   139349.608     9397.232    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5     1045.323       30.991    ops/s
-     * 
+     *
      * 512
-     * 
+     *
      * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5   270919.870     5381.793    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd          10000  thrpt         5     1724.436       42.287    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5   141478.813     3696.030    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5      719.447       75.629    ops/s
-     * 
-     * 
+     *
+     *
      * 256
-     * 
+     *
      * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5   272042.605     7954.982    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd          10000  thrpt         5     1101.329       23.566    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5   140479.804     6389.060    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5      397.306       24.222    ops/s
-     * 
+     *
      * 128
-     * 
+     *
      * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5   263065.312    11168.941    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd          10000  thrpt         5      581.708       17.397    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5   138051.488     4618.935    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5      176.873       35.669    ops/s
-     * 
+     *
      * 32
-     * 
+     *
      * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5   250737.473    17260.148    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd          10000  thrpt         5      144.725       26.284    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5   118832.832     9082.658    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5       32.133        8.048    ops/s
-     * 
+     *
      * 8
-     * 
+     *
      * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5   209192.847    25558.124    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd          10000  thrpt         5       26.520        3.100    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5   100200.463     1854.259    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5        8.456        2.114    ops/s
-     * 
+     *
      * 2
-     * 
+     *
      * Benchmark                                              (size)   Mode   Samples        Score  Score error    Units
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd            100  thrpt         5    96549.208     4427.239    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAdd          10000  thrpt         5        6.637        2.025    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove      100  thrpt         5    34553.169     4904.197    ops/s
      * r.i.IndexedRingBufferPerf.indexedRingBufferAddRemove    10000  thrpt         5        2.159        0.700    ops/s
      * } </pre>
-     * 
+     *
      * Impact of IndexedRingBuffer size on merge
-     * 
+     *
      * <pre> {@code
      * ./gradlew benchmarks '-Pjmh=-f 1 -tu s -bm thrpt -wi 5 -i 5 -r 1 .*OperatorMergePerf.*'
-     * 
+     *
      * 512
-     * 
+     *
      * Benchmark                                          (size)   Mode   Samples        Score  Score error    Units
      * r.o.OperatorMergePerf.merge1SyncStreamOfN               1  thrpt         5  5282500.038   530541.761    ops/s
      * r.o.OperatorMergePerf.merge1SyncStreamOfN            1000  thrpt         5    49327.272     6382.189    ops/s
@@ -157,10 +144,10 @@ public final class IndexedRingBuffer<E> implements Subscription {
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1         1  thrpt         5  5026522.098   364196.255    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1      1000  thrpt         5    34926.819      938.612    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1   1000000  thrpt         5       33.342        1.701    ops/s
-     * 
-     * 
+     *
+     *
      * 128
-     * 
+     *
      * Benchmark                                          (size)   Mode   Samples        Score  Score error    Units
      * r.o.OperatorMergePerf.merge1SyncStreamOfN               1  thrpt         5  5144891.776   271990.561    ops/s
      * r.o.OperatorMergePerf.merge1SyncStreamOfN            1000  thrpt         5    53580.161     2370.204    ops/s
@@ -177,9 +164,9 @@ public final class IndexedRingBuffer<E> implements Subscription {
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1         1  thrpt         5  4953313.642   307512.126    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1      1000  thrpt         5    35335.579     2368.377    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1   1000000  thrpt         5       37.450        0.655    ops/s
-     * 
+     *
      * 32
-     * 
+     *
      * Benchmark                                          (size)   Mode   Samples        Score  Score error    Units
      * r.o.OperatorMergePerf.merge1SyncStreamOfN               1  thrpt         5  4975957.497   365423.694    ops/s
      * r.o.OperatorMergePerf.merge1SyncStreamOfN            1000  thrpt         5    52141.226     5056.658    ops/s
@@ -196,9 +183,9 @@ public final class IndexedRingBuffer<E> implements Subscription {
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1         1  thrpt         5  5177255.256   150253.086    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1      1000  thrpt         5    34772.490      909.967    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1   1000000  thrpt         5       34.847        0.606    ops/s
-     * 
+     *
      * 8
-     * 
+     *
      * Benchmark                                          (size)   Mode   Samples        Score  Score error    Units
      * r.o.OperatorMergePerf.merge1SyncStreamOfN               1  thrpt         5  5027331.903   337986.410    ops/s
      * r.o.OperatorMergePerf.merge1SyncStreamOfN            1000  thrpt         5    51746.540     3585.450    ops/s
@@ -215,10 +202,10 @@ public final class IndexedRingBuffer<E> implements Subscription {
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1         1  thrpt         5  4993609.293   267975.397    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1      1000  thrpt         5    33228.972     1554.924    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1   1000000  thrpt         5       32.994        3.615    ops/s
-     * 
-     * 
+     *
+     *
      * 2
-     * 
+     *
      * Benchmark                                          (size)   Mode   Samples        Score  Score error    Units
      * r.o.OperatorMergePerf.merge1SyncStreamOfN               1  thrpt         5  5103812.234   939461.192    ops/s
      * r.o.OperatorMergePerf.merge1SyncStreamOfN            1000  thrpt         5    51491.116     3790.056    ops/s
@@ -235,28 +222,33 @@ public final class IndexedRingBuffer<E> implements Subscription {
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1         1  thrpt         5  5280829.290  1602542.493    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1      1000  thrpt         5    35070.518     3565.672    ops/s
      * r.o.OperatorMergePerf.oneStreamOfNthatMergesIn1   1000000  thrpt         5       34.501        0.991    ops/s
-     * 
+     *
      * } </pre>
      */
-    static int _size = 256;
     static {
+        int defaultSize = 128;
+
         // lower default for Android (https://github.com/ReactiveX/RxJava/issues/1820)
         if (PlatformDependent.isAndroid()) {
-            _size = 8;
+            defaultSize = 8;
         }
 
         // possible system property for overriding
         String sizeFromProperty = System.getProperty("rx.indexed-ring-buffer.size"); // also see RxRingBuffer
         if (sizeFromProperty != null) {
             try {
-                _size = Integer.parseInt(sizeFromProperty);
-            } catch (Exception e) {
-                System.err.println("Failed to set 'rx.indexed-ring-buffer.size' with value " + sizeFromProperty + " => " + e.getMessage());
+                defaultSize = Integer.parseInt(sizeFromProperty);
+            } catch (NumberFormatException e) {
+                System.err.println("Failed to set 'rx.indexed-ring-buffer.size' with value " + sizeFromProperty + " => " + e.getMessage()); // NOPMD
             }
         }
+
+        SIZE = defaultSize;
     }
-    
-    /* package for unit testing */static final int SIZE = _size;
+
+    public static <T> IndexedRingBuffer<T> getInstance() {
+        return new IndexedRingBuffer<T>();
+    }
 
     /**
      * This resets the arrays, nulls out references and returns it to the pool.
@@ -270,7 +262,6 @@ public final class IndexedRingBuffer<E> implements Subscription {
         outer: while (section != null) {
             for (int i = 0; i < SIZE; i++, realIndex++) {
                 if (realIndex >= maxIndex) {
-                    section = null;
                     break outer;
                 }
                 // we can use lazySet here because we are nulling things out and not accessing them again
@@ -282,7 +273,6 @@ public final class IndexedRingBuffer<E> implements Subscription {
 
         index.set(0);
         removedIndex.set(0);
-        POOL.returnObject(this);
     }
 
     @Override
@@ -290,14 +280,15 @@ public final class IndexedRingBuffer<E> implements Subscription {
         releaseToPool();
     }
 
-    private IndexedRingBuffer() {
+    IndexedRingBuffer() {
+        // nothing to do
     }
 
     /**
      * Add an element and return the index where it was added to allow removal.
-     * 
-     * @param e
-     * @return
+     *
+     * @param e the element to add
+     * @return the index where the element was added
      */
     public int add(E e) {
         int i = getIndexForAdd();
@@ -355,7 +346,7 @@ public final class IndexedRingBuffer<E> implements Subscription {
         return a;
     }
 
-    private synchronized int getIndexForAdd() {
+    private synchronized int getIndexForAdd() { // NOPMD
         /*
          * Synchronized as I haven't yet figured out a way to do this in an atomic way that doesn't involve object allocation
          */
@@ -381,10 +372,10 @@ public final class IndexedRingBuffer<E> implements Subscription {
 
     /**
      * Returns -1 if nothing, 0 or greater if the index should be used
-     * 
-     * @return
+     *
+     * @return the index or -1 if none
      */
-    private synchronized int getIndexFromPreviouslyRemoved() {
+    private synchronized int getIndexFromPreviouslyRemoved() { // NOPMD
         /*
          * Synchronized as I haven't yet figured out a way to do this in an atomic way that doesn't involve object allocation
          */
@@ -404,7 +395,7 @@ public final class IndexedRingBuffer<E> implements Subscription {
         }
     }
 
-    private synchronized void pushRemovedIndex(int elementIndex) {
+    private synchronized void pushRemovedIndex(int elementIndex) { // NOPMD
         /*
          * Synchronized as I haven't yet figured out a way to do this in an atomic way that doesn't involve object allocation
          */
@@ -429,9 +420,10 @@ public final class IndexedRingBuffer<E> implements Subscription {
     }
 
     /**
-     * 
+     * Loop through each element in the buffer and call a specific function.
      * @param action
      *            that processes each item and returns true if it wants to continue to the next
+     * @param startIndex at which index the loop should start
      * @return int of next index to process, or last index seen if it exited early
      */
     public int forEach(Func1<? super E, Boolean> action, int startIndex) {
@@ -447,7 +439,7 @@ public final class IndexedRingBuffer<E> implements Subscription {
     }
 
     private int forEach(Func1<? super E, Boolean> action, int startIndex, int endIndex) {
-        int lastIndex = startIndex;
+        int lastIndex;
         int maxIndex = index.get();
         int realIndex = startIndex;
         ElementSection<E> section = elements;
@@ -461,7 +453,6 @@ public final class IndexedRingBuffer<E> implements Subscription {
         outer: while (section != null) {
             for (int i = startIndex; i < SIZE; i++, realIndex++) {
                 if (realIndex >= maxIndex || realIndex >= endIndex) {
-                    section = null;
                     break outer;
                 }
                 E element = section.array.get(i);
@@ -482,9 +473,9 @@ public final class IndexedRingBuffer<E> implements Subscription {
         return realIndex;
     }
 
-    private static class ElementSection<E> {
-        private final AtomicReferenceArray<E> array = new AtomicReferenceArray<E>(SIZE);
-        private final AtomicReference<ElementSection<E>> next = new AtomicReference<ElementSection<E>>();
+    static final class ElementSection<E> {
+        final AtomicReferenceArray<E> array = new AtomicReferenceArray<E>(SIZE);
+        final AtomicReference<ElementSection<E>> next = new AtomicReference<ElementSection<E>>();
 
         ElementSection<E> getNext() {
             if (next.get() != null) {
@@ -502,9 +493,11 @@ public final class IndexedRingBuffer<E> implements Subscription {
         }
     }
 
-    private static class IndexSection {
+    static class IndexSection {
 
         private final AtomicIntegerArray unsafeArray = new AtomicIntegerArray(SIZE);
+
+        private final AtomicReference<IndexSection> _next = new AtomicReference<IndexSection>();
 
         public int getAndSet(int expected, int newValue) {
             return unsafeArray.getAndSet(expected, newValue);
@@ -513,8 +506,6 @@ public final class IndexedRingBuffer<E> implements Subscription {
         public void set(int i, int elementIndex) {
             unsafeArray.set(i, elementIndex);
         }
-
-        private final AtomicReference<IndexSection> _next = new AtomicReference<IndexSection>();
 
         IndexSection getNext() {
             if (_next.get() != null) {

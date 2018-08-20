@@ -15,18 +15,18 @@
  */
 package rx.internal.operators;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.*;
 
 import rx.Observable.Operator;
 import rx.Subscriber;
 
 /**
  * Bypasses a specified number of elements at the end of an observable sequence.
+ * @param <T> the value type
  */
 public class OperatorSkipLast<T> implements Operator<T, T> {
 
-    private final int count;
+    final int count;
 
     public OperatorSkipLast(int count) {
         if (count < 0) {
@@ -38,8 +38,6 @@ public class OperatorSkipLast<T> implements Operator<T, T> {
     @Override
     public Subscriber<? super T> call(final Subscriber<? super T> subscriber) {
         return new Subscriber<T>(subscriber) {
-
-            private final NotificationLite<T> on = NotificationLite.instance();
 
             /**
              * Store the last count elements until now.
@@ -66,11 +64,11 @@ public class OperatorSkipLast<T> implements Operator<T, T> {
                     return;
                 }
                 if (deque.size() == count) {
-                    subscriber.onNext(on.getValue(deque.removeFirst()));
+                    subscriber.onNext(NotificationLite.<T>getValue(deque.removeFirst()));
                 } else {
                     request(1);
                 }
-                deque.offerLast(on.next(value));
+                deque.offerLast(NotificationLite.next(value));
             }
 
         };

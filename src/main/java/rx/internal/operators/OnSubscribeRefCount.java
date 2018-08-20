@@ -15,40 +15,36 @@
  */
 package rx.internal.operators;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.*;
 import java.util.concurrent.locks.ReentrantLock;
 
+import rx.*;
 import rx.Observable.OnSubscribe;
-import rx.Subscriber;
-import rx.Subscription;
-import rx.functions.Action0;
-import rx.functions.Action1;
+import rx.functions.*;
 import rx.observables.ConnectableObservable;
-import rx.subscriptions.CompositeSubscription;
-import rx.subscriptions.Subscriptions;
+import rx.subscriptions.*;
 
 /**
  * Returns an observable sequence that stays connected to the source as long as
  * there is at least one subscription to the observable sequence.
- * 
+ *
  * @param <T>
  *            the value type
  */
 public final class OnSubscribeRefCount<T> implements OnSubscribe<T> {
 
     private final ConnectableObservable<? extends T> source;
-    private volatile CompositeSubscription baseSubscription = new CompositeSubscription();
-    private final AtomicInteger subscriptionCount = new AtomicInteger(0);
+    volatile CompositeSubscription baseSubscription = new CompositeSubscription();
+    final AtomicInteger subscriptionCount = new AtomicInteger(0);
 
     /**
      * Use this lock for every subscription and disconnect action.
      */
-    private final ReentrantLock lock = new ReentrantLock();
+    final ReentrantLock lock = new ReentrantLock();
 
     /**
      * Constructor.
-     * 
+     *
      * @param source
      *            observable to apply ref count to
      */
@@ -108,11 +104,11 @@ public final class OnSubscribeRefCount<T> implements OnSubscribe<T> {
             }
         };
     }
-    
+
     void doSubscribe(final Subscriber<? super T> subscriber, final CompositeSubscription currentBase) {
         // handle unsubscribing from the base subscription
         subscriber.add(disconnect(currentBase));
-        
+
         source.unsafeSubscribe(new Subscriber<T>(subscriber) {
             @Override
             public void onError(Throwable e) {
@@ -130,10 +126,16 @@ public final class OnSubscribeRefCount<T> implements OnSubscribe<T> {
             }
             void cleanup() {
                 // on error or completion we need to unsubscribe the base subscription
-                // and set the subscriptionCount to 0 
+                // and set the subscriptionCount to 0
                 lock.lock();
                 try {
+
                     if (baseSubscription == currentBase) {
+                        // backdoor into the ConnectableObservable to cleanup and reset its state
+                        if (source instanceof Subscription) {
+                            ((Subscription)source).unsubscribe();
+                        }
+
                         baseSubscription.unsubscribe();
                         baseSubscription = new CompositeSubscription();
                         subscriptionCount.set(0);
@@ -152,7 +154,13 @@ public final class OnSubscribeRefCount<T> implements OnSubscribe<T> {
                 lock.lock();
                 try {
                     if (baseSubscription == current) {
+
                         if (subscriptionCount.decrementAndGet() == 0) {
+                            // backdoor into the ConnectableObservable to cleanup and reset its state
+                            if (source instanceof Subscription) {
+                                ((Subscription)source).unsubscribe();
+                            }
+
                             baseSubscription.unsubscribe();
                             // need a new baseSubscription because once
                             // unsubscribed stays that way

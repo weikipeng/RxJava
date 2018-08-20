@@ -15,10 +15,18 @@
  */
 package rx.internal.operators;
 
+import static org.junit.Assert.assertEquals;
+
 import org.junit.Test;
-import static org.junit.Assert.*;
+
+import rx.TestUtil;
 
 public class BackpressureUtilsTest {
+    @Test
+    public void constructorShouldBePrivate() {
+        TestUtil.checkUtilityClass(BackpressureUtils.class);
+    }
+
     @Test
     public void testAddCap() {
         assertEquals(2L, BackpressureUtils.addCap(1, 1));
@@ -27,7 +35,7 @@ public class BackpressureUtilsTest {
         assertEquals(Long.MAX_VALUE, BackpressureUtils.addCap(Long.MAX_VALUE - 1, Long.MAX_VALUE - 1));
         assertEquals(Long.MAX_VALUE, BackpressureUtils.addCap(Long.MAX_VALUE, Long.MAX_VALUE));
     }
-    
+
     @Test
     public void testMultiplyCap() {
         assertEquals(6, BackpressureUtils.multiplyCap(2, 3));

@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@ package rx;
 
 /**
  * An object representing a notification sent to an {@link Observable}.
+ * @param <T> the actual value type held by the Notification
  */
 public final class Notification<T> {
 
@@ -29,6 +30,7 @@ public final class Notification<T> {
     /**
      * Creates and returns a {@code Notification} of variety {@code Kind.OnNext}, and assigns it a value.
      *
+     * @param <T> the actual value type held by the Notification
      * @param t
      *          the item to assign to the notification as its value
      * @return an {@code OnNext} variety of {@code Notification}
@@ -40,6 +42,7 @@ public final class Notification<T> {
     /**
      * Creates and returns a {@code Notification} of variety {@code Kind.OnError}, and assigns it an exception.
      *
+     * @param <T> the actual value type held by the Notification
      * @param e
      *          the exception to assign to the notification
      * @return an {@code OnError} variety of {@code Notification}
@@ -51,6 +54,7 @@ public final class Notification<T> {
     /**
      * Creates and returns a {@code Notification} of variety {@code Kind.OnCompleted}.
      *
+     * @param <T> the actual value type held by the Notification
      * @return an {@code OnCompleted} variety of {@code Notification}
      */
     @SuppressWarnings("unchecked")
@@ -61,10 +65,12 @@ public final class Notification<T> {
     /**
      * Creates and returns a {@code Notification} of variety {@code Kind.OnCompleted}.
      *
-     * @warn param "type" undescribed
-     * @param type
+     * @param <T> the actual value type held by the Notification
+     * @param type the type token to help with type inference of {@code <T>}
+     * @deprecated this method does the same as {@link #createOnCompleted()} and does not use the passed in type hence it's useless.
      * @return an {@code OnCompleted} variety of {@code Notification}
      */
+    @Deprecated
     @SuppressWarnings("unchecked")
     public static <T> Notification<T> createOnCompleted(Class<T> type) {
         return (Notification<T>) ON_COMPLETED;
@@ -78,7 +84,7 @@ public final class Notification<T> {
 
     /**
      * Retrieves the exception associated with this (onError) notification.
-     * 
+     *
      * @return the Throwable associated with this (onError) notification
      */
     public Throwable getThrowable() {
@@ -87,7 +93,7 @@ public final class Notification<T> {
 
     /**
      * Retrieves the item associated with this (onNext) notification.
-     * 
+     *
      * @return the item associated with this (onNext) notification
      */
     public T getValue() {
@@ -96,7 +102,7 @@ public final class Notification<T> {
 
     /**
      * Indicates whether this notification has an item associated with it.
-     * 
+     *
      * @return a boolean indicating whether or not this notification has an item associated with it
      */
     public boolean hasValue() {
@@ -106,7 +112,7 @@ public final class Notification<T> {
 
     /**
      * Indicates whether this notification has an exception associated with it.
-     * 
+     *
      * @return a boolean indicating whether this notification has an exception associated with it
      */
     public boolean hasThrowable() {
@@ -115,7 +121,7 @@ public final class Notification<T> {
 
     /**
      * Retrieves the kind of this notification: {@code OnNext}, {@code OnError}, or {@code OnCompleted}
-     * 
+     *
      * @return the kind of the notification: {@code OnNext}, {@code OnError}, or {@code OnCompleted}
      */
     public Kind getKind() {
@@ -124,7 +130,7 @@ public final class Notification<T> {
 
     /**
      * Indicates whether this notification represents an {@code onError} event.
-     * 
+     *
      * @return a boolean indicating whether this notification represents an {@code onError} event
      */
     public boolean isOnError() {
@@ -133,7 +139,7 @@ public final class Notification<T> {
 
     /**
      * Indicates whether this notification represents an {@code onCompleted} event.
-     * 
+     *
      * @return a boolean indicating whether this notification represents an {@code onCompleted} event
      */
     public boolean isOnCompleted() {
@@ -142,7 +148,7 @@ public final class Notification<T> {
 
     /**
      * Indicates whether this notification represents an {@code onNext} event.
-     * 
+     *
      * @return a boolean indicating whether this notification represents an {@code onNext} event
      */
     public boolean isOnNext() {
@@ -151,62 +157,67 @@ public final class Notification<T> {
 
     /**
      * Forwards this notification on to a specified {@link Observer}.
+     * @param observer the target observer to call onXXX methods on based on the kind of this Notification instance
      */
     public void accept(Observer<? super T> observer) {
-        if (isOnNext()) {
+        if (kind == Kind.OnNext) {
             observer.onNext(getValue());
-        } else if (isOnCompleted()) {
+        } else if (kind == Kind.OnCompleted) {
             observer.onCompleted();
-        } else if (isOnError()) {
+        } else {
             observer.onError(getThrowable());
         }
     }
 
+    /**
+     * Specifies the kind of the notification: an element, an error or a completion notification.
+     */
     public enum Kind {
         OnNext, OnError, OnCompleted
     }
 
     @Override
     public String toString() {
-        StringBuilder str = new StringBuilder("[").append(super.toString()).append(" ").append(getKind());
-        if (hasValue())
-            str.append(" ").append(getValue());
-        if (hasThrowable())
-            str.append(" ").append(getThrowable().getMessage());
-        str.append("]");
+        StringBuilder str = new StringBuilder(64).append('[').append(super.toString())
+                .append(' ').append(getKind());
+        if (hasValue()) {
+            str.append(' ').append(getValue());
+        }
+        if (hasThrowable()) {
+            str.append(' ').append(getThrowable().getMessage());
+        }
+        str.append(']');
         return str.toString();
     }
 
     @Override
     public int hashCode() {
         int hash = getKind().hashCode();
-        if (hasValue())
+        if (hasValue()) {
             hash = hash * 31 + getValue().hashCode();
-        if (hasThrowable())
+        }
+        if (hasThrowable()) {
             hash = hash * 31 + getThrowable().hashCode();
+        }
         return hash;
     }
 
     @Override
     public boolean equals(Object obj) {
-        if (obj == null)
+        if (obj == null) {
             return false;
-        if (this == obj)
+        }
+
+        if (this == obj) {
             return true;
-        if (obj.getClass() != getClass())
+        }
+
+        if (obj.getClass() != getClass()) {
             return false;
+        }
+
         Notification<?> notification = (Notification<?>) obj;
-        if (notification.getKind() != getKind())
-            return false;
-        if (hasValue() && !getValue().equals(notification.getValue()))
-            return false;
-        if (hasThrowable() && !getThrowable().equals(notification.getThrowable()))
-            return false;
-        if(!hasValue() && !hasThrowable() && notification.hasValue())
-        	return false;
-        if(!hasValue() && !hasThrowable() && notification.hasThrowable())
-        	return false;
-        
-        return true;
+        return notification.getKind() == getKind() && (value == notification.value || (value != null && value.equals(notification.value))) && (throwable == notification.throwable || (throwable != null && throwable.equals(notification.throwable)));
+
     }
 }

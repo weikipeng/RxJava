@@ -16,12 +16,12 @@
 package rx.internal.operators;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.atomic.AtomicReference;
+
+import rx.*;
 import rx.Observable.Operator;
-import rx.Scheduler;
 import rx.Scheduler.Worker;
 import rx.exceptions.Exceptions;
-import rx.Subscriber;
 import rx.functions.Action0;
 import rx.observers.SerializedSubscriber;
 
@@ -30,7 +30,7 @@ import rx.observers.SerializedSubscriber;
  * Observable at a specified time interval.
  * <p>
  * <img width="640" src="https://github.com/ReactiveX/RxJava/wiki/images/rx-operators/sample.png" alt="">
- * 
+ *
  * @param <T> the value type
  */
 public final class OperatorSampleWithTime<T> implements Operator<T, T> {
@@ -49,7 +49,7 @@ public final class OperatorSampleWithTime<T> implements Operator<T, T> {
         final SerializedSubscriber<T> s = new SerializedSubscriber<T>(child);
         final Worker worker = scheduler.createWorker();
         child.add(worker);
-        
+
         SamplerSubscriber<T> sampler = new SamplerSubscriber<T>(s);
         child.add(sampler);
         worker.schedulePeriodically(sampler, time, time, unit);
@@ -64,23 +64,20 @@ public final class OperatorSampleWithTime<T> implements Operator<T, T> {
         /** Indicates that no value is available. */
         private static final Object EMPTY_TOKEN = new Object();
         /** The shared value between the observer and the timed action. */
-        volatile Object value = EMPTY_TOKEN;
-        /** Updater for the value field. */
-        @SuppressWarnings("rawtypes")
-        static final AtomicReferenceFieldUpdater<SamplerSubscriber, Object> VALUE_UPDATER
-                = AtomicReferenceFieldUpdater.newUpdater(SamplerSubscriber.class, Object.class, "value");
+        final AtomicReference<Object> value = new AtomicReference<Object>(EMPTY_TOKEN);
+
         public SamplerSubscriber(Subscriber<? super T> subscriber) {
             this.subscriber = subscriber;
         }
-        
+
         @Override
         public void onStart() {
             request(Long.MAX_VALUE);
         }
-        
+
         @Override
         public void onNext(T t) {
-            value = t;
+            value.set(t);
         }
 
         @Override
@@ -91,13 +88,18 @@ public final class OperatorSampleWithTime<T> implements Operator<T, T> {
 
         @Override
         public void onCompleted() {
+            emitIfNonEmpty();
             subscriber.onCompleted();
             unsubscribe();
         }
 
         @Override
         public void call() {
-            Object localValue = VALUE_UPDATER.getAndSet(this, EMPTY_TOKEN);
+            emitIfNonEmpty();
+        }
+
+        private void emitIfNonEmpty() {
+            Object localValue = value.getAndSet(EMPTY_TOKEN);
             if (localValue != EMPTY_TOKEN) {
                 try {
                     @SuppressWarnings("unchecked")

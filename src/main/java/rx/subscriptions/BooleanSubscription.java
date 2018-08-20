@@ -1,12 +1,12 @@
 /**
  * Copyright 2014 Netflix, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,7 +15,7 @@
  */
 package rx.subscriptions;
 
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicReference;
 
 import rx.Observable;
 import rx.Subscription;
@@ -27,17 +27,14 @@ import rx.functions.Action0;
  */
 public final class BooleanSubscription implements Subscription {
 
-    private final Action0 action;
-    volatile int unsubscribed;
-    static final AtomicIntegerFieldUpdater<BooleanSubscription> UNSUBSCRIBED_UPDATER
-            = AtomicIntegerFieldUpdater.newUpdater(BooleanSubscription.class, "unsubscribed");
+    final AtomicReference<Action0> actionRef;
 
     public BooleanSubscription() {
-        action = null;
+        actionRef = new AtomicReference<Action0>();
     }
 
     private BooleanSubscription(Action0 action) {
-        this.action = action;
+        actionRef = new AtomicReference<Action0>(action);
     }
 
     /**
@@ -62,16 +59,25 @@ public final class BooleanSubscription implements Subscription {
 
     @Override
     public boolean isUnsubscribed() {
-        return unsubscribed != 0;
+        return actionRef.get() == EMPTY_ACTION;
     }
 
     @Override
-    public final void unsubscribe() {
-        if (UNSUBSCRIBED_UPDATER.compareAndSet(this, 0, 1)) {
-            if (action != null) {
+    public void unsubscribe() {
+        Action0 action = actionRef.get();
+        if (action != EMPTY_ACTION) {
+            action = actionRef.getAndSet(EMPTY_ACTION);
+            if (action != null && action != EMPTY_ACTION) {
                 action.call();
             }
         }
     }
+
+    static final Action0 EMPTY_ACTION = new Action0() {
+        @Override
+        public void call() {
+            // deliberately no-op
+        }
+    };
 
 }
